@@ -226,14 +226,37 @@ final class ExportFileWriter {
         return result.toString();
     }
 
-    private static String xml(String value) {
+    static String xml(String value) {
         if (value == null) return "";
-        return value
+        StringBuilder validXml = new StringBuilder(value.length());
+        for (int offset = 0; offset < value.length();) {
+            int codePoint = value.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+
+            if (isValidXmlCodePoint(codePoint)) {
+                validXml.appendCodePoint(codePoint);
+            } else {
+                // Telegram text can contain control characters that XML 1.0 forbids.
+                // Keep the workbook readable instead of emitting a corrupt worksheet.
+                validXml.append('\uFFFD');
+            }
+        }
+
+        return validXml.toString()
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
                 .replace("'", "&apos;");
+    }
+
+    private static boolean isValidXmlCodePoint(int codePoint) {
+        return codePoint == 0x9
+                || codePoint == 0xA
+                || codePoint == 0xD
+                || (codePoint >= 0x20 && codePoint <= 0xD7FF)
+                || (codePoint >= 0xE000 && codePoint <= 0xFFFD)
+                || (codePoint >= 0x10000 && codePoint <= 0x10FFFF);
     }
 
     private ExportFileWriter() {
