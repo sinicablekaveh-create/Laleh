@@ -1,6 +1,9 @@
 package com.sinicable.telegramelectric;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.Editable;
@@ -23,9 +26,11 @@ public final class MainActivity extends Activity {
     private WordBank wordBank;
 
     private TextView statusText;
+    private TextView proxyStatusText;
     private TextView countText;
     private TextView wordsText;
     private EditText apiHashInput;
+    private EditText proxyInput;
     private EditText phoneInput;
     private EditText authInput;
     private EditText searchInput;
@@ -43,6 +48,11 @@ public final class MainActivity extends Activity {
             @Override
             public void onAuthStep(TelegramClientManager.AuthStep step, String message) {
                 runOnUiThread(() -> updateAuthUi(step, message));
+            }
+
+            @Override
+            public void onProxyStatus(String message) {
+                runOnUiThread(() -> proxyStatusText.setText(message));
             }
 
             @Override
@@ -115,6 +125,39 @@ public final class MainActivity extends Activity {
         });
         root.addView(connectButton, matchWrap());
 
+        space(root, 10);
+        root.addView(text("پروکسی تلگرام (اختیاری)", 18, true), matchWrap());
+
+        proxyInput = input(
+                "لینک MTProto یا SOCKS5 را اینجا پیست کنید",
+                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI
+        );
+        proxyInput.setTextDirection(View.TEXT_DIRECTION_LTR);
+        root.addView(proxyInput, matchWrap());
+
+        LinearLayout proxyRow = new LinearLayout(this);
+        proxyRow.setOrientation(LinearLayout.HORIZONTAL);
+        proxyRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        Button pasteProxyButton = button("پیست و فعال‌سازی");
+        pasteProxyButton.setOnClickListener(v -> pasteAndApplyProxy());
+        proxyRow.addView(pasteProxyButton, weightedButton());
+
+        Button applyProxyButton = button("فعال‌سازی");
+        applyProxyButton.setOnClickListener(v -> applyProxyFromField());
+        proxyRow.addView(applyProxyButton, weightedButton());
+
+        root.addView(proxyRow, matchWrap());
+
+        proxyStatusText = text(
+                "پشتیبانی از لینک‌های tg://proxy ، t.me/proxy ، tg://socks و t.me/socks",
+                12,
+                false
+        );
+        proxyStatusText.setTextDirection(View.TEXT_DIRECTION_RTL);
+        root.addView(proxyStatusText, matchWrap());
+
+        space(root, 10);
         phoneInput = input("شماره با کد کشور، مثل +994...", InputType.TYPE_CLASS_PHONE);
         phoneInput.setTextDirection(View.TEXT_DIRECTION_LTR);
         root.addView(phoneInput, matchWrap());
@@ -186,13 +229,48 @@ public final class MainActivity extends Activity {
 
         space(root, 20);
         root.addView(text(
-                "API Hash و شماره تلفن در GitHub قرار نمی‌گیرند. بانک واژه روی همین گوشی ذخیره می‌شود. " +
+                "API Hash، شماره تلفن و لینک پروکسی داخل GitHub قرار نمی‌گیرند. بانک واژه روی همین گوشی ذخیره می‌شود. " +
                         "برای اتصال تلگرام اینترنت لازم است؛ بانک واژه بدون اینترنت هم کار می‌کند.",
                 12,
                 false
         ), matchWrap());
 
         return scroll;
+    }
+
+    private void pasteAndApplyProxy() {
+        ClipboardManager clipboard =
+                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+
+        if (clipboard == null || !clipboard.hasPrimaryClip()) {
+            Toast.makeText(this, "کلیپ‌بورد خالی است.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ClipData clip = clipboard.getPrimaryClip();
+        if (clip == null || clip.getItemCount() == 0) {
+            Toast.makeText(this, "کلیپ‌بورد خالی است.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        CharSequence value = clip.getItemAt(0).coerceToText(this);
+        if (value == null || value.toString().trim().isEmpty()) {
+            Toast.makeText(this, "متن قابل استفاده‌ای در کلیپ‌بورد نیست.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        proxyInput.setText(value.toString().trim());
+        proxyInput.setSelection(proxyInput.getText().length());
+        applyProxyFromField();
+    }
+
+    private void applyProxyFromField() {
+        String link = proxyInput.getText().toString().trim();
+        if (link.isEmpty()) {
+            Toast.makeText(this, "لینک پروکسی را پیست کنید.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        telegram.setProxyFromLink(link);
     }
 
     private void updateAuthUi(TelegramClientManager.AuthStep step, String message) {
@@ -256,6 +334,16 @@ public final class MainActivity extends Activity {
         button.setTextSize(15);
         button.setAllCaps(false);
         return button;
+    }
+
+    private LinearLayout.LayoutParams weightedButton() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                1f
+        );
+        params.setMargins(dp(3), 0, dp(3), 0);
+        return params;
     }
 
     private TextView text(String value, int size, boolean bold) {
