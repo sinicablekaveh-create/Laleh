@@ -498,7 +498,7 @@ public final class TelegramClientManager {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
                         boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat, true);
+                        captureSearchResult(chat);
                         if (isNew) newItems.incrementAndGet();
                     }
 
@@ -556,8 +556,8 @@ public final class TelegramClientManager {
                     if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
-                        boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat, false);
+                        boolean isNew = !targetGroups.containsKey(chat.id);
+                        inspectTargetGroup(chat);
                         if (isNew) newItems.incrementAndGet();
                     }
 
