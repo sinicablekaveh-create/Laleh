@@ -236,12 +236,44 @@ public final class MainActivity extends Activity {
         root.addView(authButton, matchWrap());
 
         space(root, 22);
-        corePanel = new CentralCorePanel(this, telegram, wordBank);
+        corePanel = new CentralCorePanel(this, telegram, wordBank, sharedCore);
         corePanel.setExportRequestListener(
                 (entityType, format, startNumber, endNumber) ->
                         startExport(entityType, format, startNumber, endNumber)
         );
         root.addView(corePanel, matchWrap());
+
+        backgroundRunCheck = new CheckBox(this);
+        backgroundRunCheck.setText("اجرا در پس‌زمینه");
+        backgroundRunCheck.setChecked(backgroundModeStore.isEnabled());
+        backgroundRunCheck.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            backgroundModeStore.setEnabled(isChecked);
+
+            if (isChecked) {
+                BackgroundRuntime.attach(telegram, wordBank, corePanel.getCore());
+                BackgroundCoreService.start(this);
+                Toast.makeText(
+                        this,
+                        "اجرای پس‌زمینه فعال شد. اعلان دائمی برنامه نمایش داده می‌شود.",
+                        Toast.LENGTH_LONG
+                ).show();
+            } else {
+                BackgroundCoreService.stop(this);
+                BackgroundRuntime.clear();
+                Toast.makeText(
+                        this,
+                        "اجرای پس‌زمینه غیرفعال شد.",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        });
+        root.addView(backgroundRunCheck, matchWrap());
+
+        root.addView(text(
+                "وقتی این گزینه روشن باشد، هسته مرکزی با Foreground Service و اعلان دائمی در پس‌زمینه فعال می‌ماند. بعضی گوشی‌ها ممکن است برای برنامه محدودیت باتری جداگانه اعمال کنند.",
+                12,
+                false
+        ), matchWrap());
 
         space(root, 22);
         root.addView(text("بانک واژه برق", 20, true), matchWrap());
@@ -306,6 +338,102 @@ public final class MainActivity extends Activity {
         return scroll;
     }
 
+
+    private TelegramClientManager.Listener createTelegramUiListener() {
+        return new TelegramClientManager.Listener() {
+            @Override
+            public void onAuthStep(TelegramClientManager.AuthStep step, String message) {
+                runOnUiThread(() -> updateAuthUi(step, message));
+            }
+
+            @Override
+            public void onProxyStatus(String message) {
+                runOnUiThread(() -> {
+                    if (proxyStatusText != null) proxyStatusText.setText(message);
+                });
+            }
+
+            @Override
+            public void onConnectionStatus(String message, boolean ready) {
+                runOnUiThread(() -> {
+                    if (telegramConnectionText != null) telegramConnectionText.setText(message);
+                });
+            }
+
+            @Override
+            public void onRecipientsChanged() {
+                runOnUiThread(() -> {
+                    if (corePanel != null) corePanel.refreshAll();
+                });
+            }
+
+            @Override
+            public void onError(String message) {
+                runOnUiThread(() -> {
+                    if (statusText != null) statusText.setText("خطا: " + message);
+                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
+                });
+            }
+
+            @Override
+            public void onMessageText(String text) {
+                if (!autoLearnEnabled) return;
+                int added = wordBank.learnFromMessage(text);
+                if (added > 0) {
+                    runOnUiThread(() -> {
+                        if (searchInput != null) {
+                            refreshWords(searchInput.getText().toString());
+                        }
+                        if (countText != null) {
+                            countText.setText(
+                                    "بانک واژه: " + wordBank.size()
+                                            + " واژه — " + added + " واژه جدید یاد گرفته شد"
+                            );
+                        }
+                    });
+                }
+            }
+        };
+    }
+
+    private void detachUiListenersForBackground() {
+        telegram.setListener(new TelegramClientManager.Listener() {
+            @Override
+            public void onAuthStep(TelegramClientManager.AuthStep step, String message) {
+            }
+
+            @Override
+            public void onProxyStatus(String message) {
+            }
+
+            @Override
+            public void onConnectionStatus(String message, boolean ready) {
+            }
+
+            @Override
+            public void onRecipientsChanged() {
+            }
+
+            @Override
+            public void onError(String message) {
+            }
+
+            @Override
+            public void onMessageText(String text) {
+                wordBank.learnFromMessage(text);
+            }
+        });
+
+        corePanel.getCore().setListener(new CentralCore.Listener() {
+            @Override
+            public void onStatus(String message) {
+            }
+
+            @Override
+            public void onDataChanged() {
+            }
+        });
+    }
 
     private void startExport(
             ExportFileWriter.EntityType entityType,
@@ -581,8 +709,19 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (corePanel != null) corePanel.shutdown();
-        telegram.close();
+        if (backgroundModeStore != null
+                && backgroundModeStore.isEnabled()
+                && corePanel != null
+                && telegram != null
+                && wordBank != null) {
+            detachUiListenersForBackground();
+            BackgroundRuntime.attach(telegram, wordBank, corePanel.getCore());
+            BackgroundCoreService.start(this);
+        } else {
+            if (corePanel != null) corePanel.shutdown();
+            if (telegram != null) telegram.close();
+            BackgroundRuntime.clear();
+        }
         super.onDestroy();
     }
 
