@@ -33,6 +33,7 @@ public final class CentralCore {
     private static final String PREFS = "central_core";
     private static final String KEY_ENABLED = "enabled";
     private static final String KEY_MESSAGE = "message";
+    private static final String KEY_PHOTO_PATH = "photo_path";
     private static final String KEY_MODE = "mode";
     private static final String KEY_GROUPS = "selected_groups";
     private static final String KEY_SENT_COUNT = "sent_count";
@@ -52,6 +53,7 @@ public final class CentralCore {
     private boolean enabled;
     private boolean searchInFlight;
     private String message;
+    private String photoPath;
     private ScheduleMode mode;
     private long sentCount;
     private long windowEndsAt;
@@ -85,6 +87,7 @@ public final class CentralCore {
 
         enabled = prefs.getBoolean(KEY_ENABLED, false);
         message = prefs.getString(KEY_MESSAGE, "");
+        photoPath = prefs.getString(KEY_PHOTO_PATH, "");
         sentCount = prefs.getLong(KEY_SENT_COUNT, 0L);
 
         String savedMode = prefs.getString(KEY_MODE, ScheduleMode.EVERY_5_MINUTES.name());
@@ -114,6 +117,28 @@ public final class CentralCore {
 
     public synchronized String getMessage() {
         return message == null ? "" : message;
+    }
+
+    public synchronized void setPhotoPath(String value) {
+        photoPath = value == null ? "" : value.trim();
+        prefs.edit().putString(KEY_PHOTO_PATH, photoPath).apply();
+        listener.onDataChanged();
+    }
+
+    public synchronized String getPhotoPath() {
+        return photoPath == null ? "" : photoPath;
+    }
+
+    public synchronized boolean hasPhoto() {
+        return PhotoMessageStore.exists(photoPath);
+    }
+
+    public synchronized void clearPhoto(Context context) {
+        String old = photoPath;
+        photoPath = "";
+        prefs.edit().remove(KEY_PHOTO_PATH).apply();
+        PhotoMessageStore.clear(context, null);
+        listener.onDataChanged();
     }
 
     public synchronized void setMode(ScheduleMode value) {
@@ -221,8 +246,13 @@ public final class CentralCore {
             target = targets.get(targetCursor++);
         }
 
-        listener.onStatus("در حال ارسال خودکار به «" + target.title + "» ...");
-        telegram.sendTextToChat(target.id, getMessage(), (success, resultMessage) -> {
+        listener.onStatus(
+                hasPhoto()
+                        ? "در حال ارسال عکس و متن به «" + target.title + "» ..."
+                        : "در حال ارسال خودکار به «" + target.title + "» ..."
+        );
+
+        TelegramClientManager.SendCallback sendCallback = (success, resultMessage) -> {
             if (!isEnabled()) return;
 
             if (success) {
@@ -245,7 +275,18 @@ public final class CentralCore {
                 }
             }
             listener.onDataChanged();
-        });
+        };
+
+        if (hasPhoto()) {
+            telegram.sendPhotoToChat(
+                    target.id,
+                    getPhotoPath(),
+                    getMessage(),
+                    sendCallback
+            );
+        } else {
+            telegram.sendTextToChat(target.id, getMessage(), sendCallback);
+        }
     }
 
     private synchronized void beginDiscoveryWindow(long duration) {
