@@ -63,8 +63,18 @@ public final class TelegramClientManager {
         public final int memberCount;
         public final String status;
         public final boolean canSend;
+        public final boolean discoveredBySearch;
 
-        GroupInfo(int number, long id, String title, String link, int memberCount, String status, boolean canSend) {
+        GroupInfo(
+                int number,
+                long id,
+                String title,
+                String link,
+                int memberCount,
+                String status,
+                boolean canSend,
+                boolean discoveredBySearch
+        ) {
             this.number = Math.max(0, number);
             this.id = id;
             this.title = cleanLabel(title, String.valueOf(id));
@@ -72,10 +82,15 @@ public final class TelegramClientManager {
             this.memberCount = Math.max(0, memberCount);
             this.status = cleanLabel(status, "وضعیت نامشخص");
             this.canSend = canSend;
+            this.discoveredBySearch = discoveredBySearch;
+        }
+
+        GroupInfo(int number, long id, String title, String link, int memberCount, String status, boolean canSend) {
+            this(number, id, title, link, memberCount, status, canSend, false);
         }
 
         GroupInfo(long id, String title, String link, int memberCount, String status, boolean canSend) {
-            this(0, id, title, link, memberCount, status, canSend);
+            this(0, id, title, link, memberCount, status, canSend, false);
         }
     }
 
@@ -163,7 +178,12 @@ public final class TelegramClientManager {
     }
 
     public List<GroupInfo> getFoundGroups() {
-        List<GroupInfo> result = new ArrayList<>(foundGroups.values());
+        List<GroupInfo> result = new ArrayList<>();
+        for (GroupInfo info : foundGroups.values()) {
+            if (info.discoveredBySearch) {
+                result.add(info);
+            }
+        }
         result.sort(Comparator.comparingInt(info -> info.number));
         return result;
     }
@@ -394,7 +414,7 @@ public final class TelegramClientManager {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
                         boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat);
+                        captureKnownGroup(chat, false);
                         if (isNew) newItems.incrementAndGet();
                     }
 
@@ -453,7 +473,7 @@ public final class TelegramClientManager {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
                         boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat);
+                        captureKnownGroup(chat, true);
                         if (isNew) newItems.incrementAndGet();
                     }
 
@@ -698,7 +718,8 @@ public final class TelegramClientManager {
                         existing.link,
                         existing.memberCount,
                         existing.status,
-                        existing.canSend
+                        existing.canSend,
+                        existing.discoveredBySearch
                 ));
                 persistDiscovery();
                 listener.onRecipientsChanged();
@@ -732,7 +753,7 @@ public final class TelegramClientManager {
 
 
 
-    private void captureKnownGroup(TdApi.Chat chat) {
+    private void captureKnownGroup(TdApi.Chat chat, boolean discoveredBySearch) {
         if (chat == null || !isGroupChat(chat)) return;
 
         GroupInfo existing = foundGroups.get(chat.id);
@@ -742,7 +763,8 @@ public final class TelegramClientManager {
                 existing == null ? "" : existing.link,
                 existing == null ? 0 : existing.memberCount,
                 existing == null ? "موجود در حساب تلگرام" : existing.status,
-                existing != null && existing.canSend
+                existing != null && existing.canSend,
+                discoveredBySearch || (existing != null && existing.discoveredBySearch)
         );
         storeGroup(base);
 
@@ -784,7 +806,8 @@ public final class TelegramClientManager {
                 link,
                 memberCount,
                 status,
-                canSend
+                canSend,
+                existing != null && existing.discoveredBySearch
         ));
     }
 
@@ -806,7 +829,8 @@ public final class TelegramClientManager {
                 info.link,
                 info.memberCount,
                 info.status,
-                info.canSend
+                info.canSend,
+                info.discoveredBySearch || (existing != null && existing.discoveredBySearch)
         );
 
         foundGroups.put(info.id, stored);
@@ -854,7 +878,23 @@ public final class TelegramClientManager {
     private static boolean canSendFromStatus(Object status) {
         if (status == null) return false;
         String name = status.getClass().getSimpleName();
-        return name.contains("Creator") || name.contains("Administrator");
+
+        if (name.contains("Creator")
+                || name.contains("Administrator")
+                || name.contains("Member")) {
+            return true;
+        }
+
+        if (name.contains("Restricted")) {
+            Object permissions = readObjectField(status, "permissions");
+            Object basic = readObjectField(permissions, "canSendBasicMessages");
+            if (basic instanceof Boolean) return (Boolean) basic;
+
+            Object legacy = readObjectField(permissions, "canSendMessages");
+            if (legacy instanceof Boolean) return (Boolean) legacy;
+        }
+
+        return false;
     }
 
     private static String describeMemberStatus(Object status) {
@@ -1073,7 +1113,8 @@ public final class TelegramClientManager {
                         item.optString("link", ""),
                         item.optInt("memberCount", 0),
                         item.optString("status", ""),
-                        item.optBoolean("canSend", false)
+                        item.optBoolean("canSend", false),
+                        item.optBoolean("discoveredBySearch", false)
                 ));
             }
 
@@ -1119,6 +1160,7 @@ public final class TelegramClientManager {
                 item.put("memberCount", info.memberCount);
                 item.put("status", info.status);
                 item.put("canSend", info.canSend);
+                item.put("discoveredBySearch", info.discoveredBySearch);
                 groups.put(item);
             }
 
