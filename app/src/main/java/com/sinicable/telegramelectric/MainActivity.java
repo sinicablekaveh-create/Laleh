@@ -28,6 +28,7 @@ public final class MainActivity extends Activity {
     private TelegramClientManager telegram;
     private WordBank wordBank;
     private CentralCorePanel corePanel;
+    private AuthSessionStore authSessionStore;
 
     private TextView statusText;
     private TextView proxyStatusText;
@@ -35,6 +36,7 @@ public final class MainActivity extends Activity {
     private TextView telegramConnectionText;
     private TextView countText;
     private TextView wordsText;
+    private EditText apiIdInput;
     private EditText apiHashInput;
     private EditText proxyInput;
     private EditText phoneInput;
@@ -50,6 +52,7 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
 
         wordBank = new WordBank(this);
+        authSessionStore = new AuthSessionStore(this);
         telegram = new TelegramClientManager(this, new TelegramClientManager.Listener() {
             @Override
             public void onAuthStep(TelegramClientManager.AuthStep step, String message) {
@@ -97,7 +100,14 @@ public final class MainActivity extends Activity {
         setContentView(buildUi());
         refreshWords("");
         checkInternetConnection();
-        telegram.emitCurrentConnectionStatus();
+
+        if (authSessionStore.hasCredentials()) {
+            apiIdInput.setText(String.valueOf(authSessionStore.getApiId()));
+            statusText.setText("در حال بازیابی نشست ذخیره‌شده تلگرام...");
+            telegram.start(authSessionStore.getApiId(), authSessionStore.getApiHash());
+        } else {
+            telegram.emitCurrentConnectionStatus();
+        }
     }
 
     private View buildUi() {
@@ -141,7 +151,7 @@ public final class MainActivity extends Activity {
         space(root, 18);
         root.addView(text("اتصال تلگرام", 20, true), matchWrap());
 
-        EditText apiIdInput = input("API ID", InputType.TYPE_CLASS_NUMBER);
+        apiIdInput = input("API ID", InputType.TYPE_CLASS_NUMBER);
         apiIdInput.setTextDirection(View.TEXT_DIRECTION_LTR);
         root.addView(apiIdInput, matchWrap());
 
@@ -149,17 +159,35 @@ public final class MainActivity extends Activity {
         apiHashInput.setTextDirection(View.TEXT_DIRECTION_LTR);
         root.addView(apiHashInput, matchWrap());
 
-        Button connectButton = button("شروع اتصال");
+        Button connectButton = button("شروع اتصال و ذخیره ورود");
         connectButton.setOnClickListener(v -> {
             String idText = apiIdInput.getText().toString().trim();
             String hash = apiHashInput.getText().toString().trim();
             try {
-                telegram.start(Integer.parseInt(idText), hash);
+                int apiId = Integer.parseInt(idText);
+                if (hash.isEmpty()) {
+                    statusText.setText("خطا: API Hash را وارد کنید.");
+                    return;
+                }
+                authSessionStore.save(apiId, hash);
+                telegram.start(apiId, hash);
             } catch (NumberFormatException e) {
                 statusText.setText("خطا: API ID باید عدد باشد.");
             }
         });
         root.addView(connectButton, matchWrap());
+
+        Button forgetLoginButton = button("حذف ورود خودکار ذخیره‌شده");
+        forgetLoginButton.setOnClickListener(v -> {
+            authSessionStore.clear();
+            apiHashInput.setText("");
+            Toast.makeText(
+                    this,
+                    "ورود خودکار حذف شد. نشست فعلی تلگرام تا وقتی خودت خارج نشوی باقی می‌ماند.",
+                    Toast.LENGTH_LONG
+            ).show();
+        });
+        root.addView(forgetLoginButton, matchWrap());
 
         space(root, 10);
         root.addView(text("پروکسی تلگرام (اختیاری)", 18, true), matchWrap());
@@ -269,8 +297,9 @@ public final class MainActivity extends Activity {
 
         space(root, 20);
         root.addView(text(
-                "API Hash، شماره تلفن و لینک پروکسی داخل GitHub قرار نمی‌گیرند. بانک واژه روی همین گوشی ذخیره می‌شود. " +
-                        "برای اتصال تلگرام اینترنت لازم است؛ بانک واژه بدون اینترنت هم کار می‌کند.",
+                "برای ورود خودکار، API ID و API Hash فقط در فضای خصوصی همین برنامه روی گوشی ذخیره می‌شوند و داخل GitHub قرار نمی‌گیرند. " +
+                        "شماره، کد ورود و رمز دومرحله‌ای توسط این بخش ذخیره نمی‌شوند؛ نشست تلگرام را TDLib نگه می‌دارد. " +
+                        "بانک واژه و بسته ۱۰۰۰ عبارت فارسی برق ایران هم روی همین گوشی ذخیره می‌شوند.",
                 12,
                 false
         ), matchWrap());
