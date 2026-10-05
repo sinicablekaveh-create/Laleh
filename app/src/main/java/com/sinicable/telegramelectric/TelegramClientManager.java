@@ -49,11 +49,14 @@ public final class TelegramClientManager {
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
     private final Map<Long, ContactInfo> telegramContacts = new ConcurrentHashMap<>();
+    private int nextGroupNumber = 1;
+    private int nextContactNumber = 1;
     private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
     private volatile boolean connectionReady = false;
 
 
     public static final class GroupInfo {
+        public final int number;
         public final long id;
         public final String title;
         public final String link;
@@ -61,7 +64,8 @@ public final class TelegramClientManager {
         public final String status;
         public final boolean canSend;
 
-        GroupInfo(long id, String title, String link, int memberCount, String status, boolean canSend) {
+        GroupInfo(int number, long id, String title, String link, int memberCount, String status, boolean canSend) {
+            this.number = Math.max(0, number);
             this.id = id;
             this.title = cleanLabel(title, String.valueOf(id));
             this.link = cleanLabel(link, "لینک عمومی در دسترس نیست");
@@ -69,17 +73,27 @@ public final class TelegramClientManager {
             this.status = cleanLabel(status, "وضعیت نامشخص");
             this.canSend = canSend;
         }
+
+        GroupInfo(long id, String title, String link, int memberCount, String status, boolean canSend) {
+            this(0, id, title, link, memberCount, status, canSend);
+        }
     }
 
     public static final class ContactInfo {
+        public final int number;
         public final long id;
         public final String name;
         public final String phone;
 
-        ContactInfo(long id, String name, String phone) {
+        ContactInfo(int number, long id, String name, String phone) {
+            this.number = Math.max(0, number);
             this.id = id;
             this.name = cleanLabel(name, String.valueOf(id));
             this.phone = cleanLabel(phone, "شماره مخفی/در دسترس نیست");
+        }
+
+        ContactInfo(long id, String name, String phone) {
+            this(0, id, name, phone);
         }
     }
 
@@ -144,13 +158,13 @@ public final class TelegramClientManager {
 
     public List<GroupInfo> getFoundGroups() {
         List<GroupInfo> result = new ArrayList<>(foundGroups.values());
-        result.sort(Comparator.comparing(info -> info.title.toLowerCase()));
+        result.sort(Comparator.comparingInt(info -> info.number));
         return result;
     }
 
     public List<ContactInfo> getTelegramContacts() {
         List<ContactInfo> result = new ArrayList<>(telegramContacts.values());
-        result.sort(Comparator.comparing(info -> info.name.toLowerCase()));
+        result.sort(Comparator.comparingInt(info -> info.number));
         return result;
     }
 
@@ -583,6 +597,7 @@ public final class TelegramClientManager {
             GroupInfo existing = foundGroups.get(update.chatId);
             if (existing != null) {
                 foundGroups.put(update.chatId, new GroupInfo(
+                        existing.number,
                         existing.id,
                         update.title,
                         existing.link,
@@ -678,9 +693,28 @@ public final class TelegramClientManager {
         ));
     }
 
-    private boolean storeGroup(GroupInfo info) {
-        boolean isNew = !foundGroups.containsKey(info.id);
-        foundGroups.put(info.id, info);
+    private synchronized boolean storeGroup(GroupInfo info) {
+        GroupInfo existing = foundGroups.get(info.id);
+        boolean isNew = existing == null;
+
+        int number = existing != null ? existing.number : info.number;
+        if (number <= 0) {
+            number = nextGroupNumber++;
+        } else {
+            nextGroupNumber = Math.max(nextGroupNumber, number + 1);
+        }
+
+        GroupInfo stored = new GroupInfo(
+                number,
+                info.id,
+                info.title,
+                info.link,
+                info.memberCount,
+                info.status,
+                info.canSend
+        );
+
+        foundGroups.put(info.id, stored);
         persistDiscovery();
         listener.onRecipientsChanged();
         return isNew;
@@ -766,8 +800,17 @@ public final class TelegramClientManager {
         } catch (Throwable ignored) {
         }
 
-        boolean isNew = !telegramContacts.containsKey(user.id);
-        telegramContacts.put(user.id, new ContactInfo(user.id, name, phone));
+        ContactInfo existing = telegramContacts.get(user.id);
+        boolean isNew = existing == null;
+
+        int number = existing == null ? 0 : existing.number;
+        if (number <= 0) {
+            number = nextContactNumber++;
+        } else {
+            nextContactNumber = Math.max(nextContactNumber, number + 1);
+        }
+
+        telegramContacts.put(user.id, new ContactInfo(number, user.id, name, phone));
         persistDiscovery();
         listener.onRecipientsChanged();
         return isNew;
@@ -911,6 +954,7 @@ public final class TelegramClientManager {
     }
 
     private synchronized void loadDiscovery() {
+        boolean migrated = false;
         try {
             JSONArray groups = new JSONArray(discoveryPrefs.getString(KEY_GROUPS_JSON, "[]"));
             for (int i = 0; i < groups.length(); i++) {
@@ -918,7 +962,17 @@ public final class TelegramClientManager {
                 if (item == null) continue;
                 long id = item.optLong("id", 0L);
                 if (id == 0L) continue;
+
+                int number = item.optInt("number", 0);
+                if (number <= 0) {
+                    number = nextGroupNumber++;
+                    migrated = true;
+                } else {
+                    nextGroupNumber = Math.max(nextGroupNumber, number + 1);
+                }
+
                 foundGroups.put(id, new GroupInfo(
+                        number,
                         id,
                         item.optString("title", ""),
                         item.optString("link", ""),
@@ -934,11 +988,25 @@ public final class TelegramClientManager {
                 if (item == null) continue;
                 long id = item.optLong("id", 0L);
                 if (id == 0L) continue;
+
+                int number = item.optInt("number", 0);
+                if (number <= 0) {
+                    number = nextContactNumber++;
+                    migrated = true;
+                } else {
+                    nextContactNumber = Math.max(nextContactNumber, number + 1);
+                }
+
                 telegramContacts.put(id, new ContactInfo(
+                        number,
                         id,
                         item.optString("name", ""),
                         item.optString("phone", "")
                 ));
+            }
+
+            if (migrated) {
+                persistDiscovery();
             }
         } catch (Throwable ignored) {
         }
@@ -949,6 +1017,7 @@ public final class TelegramClientManager {
             JSONArray groups = new JSONArray();
             for (GroupInfo info : foundGroups.values()) {
                 JSONObject item = new JSONObject();
+                item.put("number", info.number);
                 item.put("id", info.id);
                 item.put("title", info.title);
                 item.put("link", info.link);
@@ -961,6 +1030,7 @@ public final class TelegramClientManager {
             JSONArray contacts = new JSONArray();
             for (ContactInfo info : telegramContacts.values()) {
                 JSONObject item = new JSONObject();
+                item.put("number", info.number);
                 item.put("id", info.id);
                 item.put("name", info.name);
                 item.put("phone", info.phone);
