@@ -17,8 +17,8 @@ android {
             abiFilters += listOf("arm64-v8a")
         }
 
-        versionCode = 11
-        versionName = "1.9.1"
+        versionCode = 12
+        versionName = "1.10.0"
     }
 
     buildTypes {
