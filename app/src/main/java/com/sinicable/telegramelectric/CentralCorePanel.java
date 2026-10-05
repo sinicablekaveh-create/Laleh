@@ -53,6 +53,21 @@ public final class CentralCorePanel extends LinearLayout {
     private EditText exportEndInput;
     private Spinner exportEntitySpinner;
     private ExportRequestListener exportRequestListener;
+    private boolean foundGroupsDirty;
+    private boolean observedUsersDirty;
+    private boolean discoveryRefreshPending;
+    private final Runnable discoveryRefresh = () -> {
+        discoveryRefreshPending = false;
+        if (foundGroupsDirty) {
+            foundGroupsDirty = false;
+            refreshGroups();
+        }
+        if (observedUsersDirty) {
+            observedUsersDirty = false;
+            refreshContacts();
+        }
+        refreshSummary();
+    };
 
     private final String[] scheduleLabels = {
             "هر ۵ دقیقه ۱ پیام",
@@ -270,7 +285,10 @@ public final class CentralCorePanel extends LinearLayout {
 
             @Override
             public void onDataChanged() {
-                post(CentralCorePanel.this::refreshSummary);
+                post(() -> {
+                    refreshPhotoStatus();
+                    refreshSummary();
+                });
             }
         };
 
@@ -384,13 +402,32 @@ public final class CentralCorePanel extends LinearLayout {
     }
 
     public void onFoundGroupsChanged() {
-        refreshGroups();
-        refreshSummary();
+        foundGroupsDirty = true;
+        scheduleDiscoveryRefresh();
     }
 
     public void onObservedUsersChanged() {
-        refreshContacts();
-        refreshSummary();
+        observedUsersDirty = true;
+        scheduleDiscoveryRefresh();
+    }
+
+    private void scheduleDiscoveryRefresh() {
+        if (discoveryRefreshPending) return;
+        discoveryRefreshPending = true;
+        postDelayed(discoveryRefresh, 150L);
+    }
+
+    @Override
+    protected void onDetachedFromWindow() {
+        removeCallbacks(discoveryRefresh);
+        discoveryRefreshPending = false;
+        super.onDetachedFromWindow();
+    }
+
+    @Override
+    protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        if (foundGroupsDirty || observedUsersDirty) scheduleDiscoveryRefresh();
     }
 
     public void shutdown() {
@@ -465,8 +502,8 @@ public final class CentralCorePanel extends LinearLayout {
                 "وضعیت: " + (core.isEnabled() ? "فعال ✅" : "متوقف")
                         + " | گروه هدف: " + core.selectedGroupCount()
                         + " | ارسال موفق: " + core.getSentCount()
-                        + "\nگروه پیدا‌شده: " + telegram.getFoundGroups().size()
-                        + " | کاربر دارای شماره: " + telegram.getTelegramContacts().size()
+                        + "\nگروه پیدا‌شده: " + telegram.getFoundGroupCount()
+                        + " | کاربر دارای شماره: " + telegram.getObservedUserCount()
                         + " | صف هوشمند: " + core.queueSize() + " واژه"
         );
 

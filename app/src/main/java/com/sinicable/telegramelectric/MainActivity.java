@@ -30,6 +30,8 @@ import android.widget.Toast;
 
 import java.io.OutputStream;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_FILE = 7001;
@@ -61,6 +63,7 @@ public final class MainActivity extends Activity {
     private Button authButton;
     private CheckBox backgroundRunCheck;
     private volatile boolean autoLearnEnabled = true;
+    private final ExecutorService fileExecutor = Executors.newSingleThreadExecutor();
 
     private ExportFileWriter.EntityType pendingExportEntity;
     private ExportFileWriter.Format pendingExportFormat;
@@ -73,6 +76,22 @@ public final class MainActivity extends Activity {
 
         authSessionStore = new AuthSessionStore(this);
         backgroundModeStore = new BackgroundModeStore(this);
+
+        if (savedInstanceState != null) {
+            String entity = savedInstanceState.getString("pending_export_entity");
+            String format = savedInstanceState.getString("pending_export_format");
+            if (entity != null && format != null) {
+                try {
+                    pendingExportEntity = ExportFileWriter.EntityType.valueOf(entity);
+                    pendingExportFormat = ExportFileWriter.Format.valueOf(format);
+                    pendingExportStart = savedInstanceState.getInt("pending_export_start");
+                    pendingExportEnd = savedInstanceState.getInt("pending_export_end");
+                } catch (IllegalArgumentException ignored) {
+                    pendingExportEntity = null;
+                    pendingExportFormat = null;
+                }
+            }
+        }
 
         TelegramClientManager.Listener uiListener = createTelegramUiListener();
         BackgroundRuntime.Snapshot runtime = BackgroundRuntime.get();
@@ -501,26 +520,32 @@ public final class MainActivity extends Activity {
 
     private void handleSelectedMessagePhoto(Uri uri) {
         if (uri == null || corePanel == null) return;
-
-        try {
-            String savedPath = PhotoMessageStore.copyIntoApp(this, uri);
-            corePanel.setSelectedPhotoPath(savedPath);
-            Toast.makeText(
-                    this,
-                    "عکس پیام ذخیره شد و همراه متن ارسال می‌شود.",
-                    Toast.LENGTH_LONG
-            ).show();
-        } catch (Throwable error) {
-            String message = error.getMessage();
-            if (message == null || message.trim().isEmpty()) {
-                message = error.getClass().getSimpleName();
+        final Context appContext = getApplicationContext();
+        final CentralCore core = corePanel.getCore();
+        Toast.makeText(this, "در حال ذخیره عکس...", Toast.LENGTH_SHORT).show();
+        fileExecutor.execute(() -> {
+            try {
+                String savedPath = PhotoMessageStore.copyIntoApp(appContext, uri);
+                core.setPhotoPath(savedPath);
+                PhotoMessageStore.clear(appContext, savedPath);
+                showFileResult("عکس پیام ذخیره شد و همراه متن ارسال می‌شود.");
+            } catch (Exception error) {
+                showFileResult("ذخیره عکس ناموفق بود: " + fileErrorMessage(error));
             }
-            Toast.makeText(
-                    this,
-                    "ذخیره عکس ناموفق بود: " + message,
-                    Toast.LENGTH_LONG
-            ).show();
-        }
+        });
+    }
+
+    private void showFileResult(String message) {
+        runOnUiThread(() -> {
+            if (isFinishing() || isDestroyed()) return;
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        });
+    }
+
+    private static String fileErrorMessage(Exception error) {
+        String message = error.getMessage();
+        return message == null || message.trim().isEmpty()
+                ? error.getClass().getSimpleName() : message;
     }
 
     private void startExport(
@@ -573,42 +598,38 @@ public final class MainActivity extends Activity {
             return;
         }
 
-        try (OutputStream output = getContentResolver().openOutputStream(uri, "w")) {
-            if (output == null) {
-                throw new IllegalStateException("فایل خروجی باز نشد.");
+        final ExportFileWriter.EntityType entity = pendingExportEntity;
+        final ExportFileWriter.Format format = pendingExportFormat;
+        final int start = pendingExportStart;
+        final int end = pendingExportEnd;
+        final TelegramClientManager source = telegram;
+        final Context appContext = getApplicationContext();
+        pendingExportEntity = null;
+        pendingExportFormat = null;
+        pendingExportStart = 0;
+        pendingExportEnd = 0;
+        Toast.makeText(this, "در حال ذخیره فایل...", Toast.LENGTH_SHORT).show();
+        fileExecutor.execute(() -> {
+            try (OutputStream output = appContext.getContentResolver().openOutputStream(uri, "w")) {
+                if (output == null) throw new IllegalStateException("فایل خروجی باز نشد.");
+                ExportFileWriter.write(output, source, entity, format, start, end);
+            } catch (Exception error) {
+                showFileResult("ذخیره فایل ناموفق بود: " + fileErrorMessage(error));
+                return;
             }
+            showFileResult("فایل با موفقیت ذخیره شد.");
+        });
+    }
 
-            ExportFileWriter.write(
-                    output,
-                    telegram,
-                    pendingExportEntity,
-                    pendingExportFormat,
-                    pendingExportStart,
-                    pendingExportEnd
-            );
-
-            Toast.makeText(
-                    this,
-                    "فایل با موفقیت ذخیره شد.",
-                    Toast.LENGTH_LONG
-            ).show();
-        } catch (Throwable error) {
-            String message = error.getMessage();
-            if (message == null || message.trim().isEmpty()) {
-                message = error.getClass().getSimpleName();
-            }
-
-            Toast.makeText(
-                    this,
-                    "ذخیره فایل ناموفق بود: " + message,
-                    Toast.LENGTH_LONG
-            ).show();
-        } finally {
-            pendingExportEntity = null;
-            pendingExportFormat = null;
-            pendingExportStart = 0;
-            pendingExportEnd = 0;
+    @Override
+    protected void onSaveInstanceState(Bundle state) {
+        if (pendingExportEntity != null && pendingExportFormat != null) {
+            state.putString("pending_export_entity", pendingExportEntity.name());
+            state.putString("pending_export_format", pendingExportFormat.name());
+            state.putInt("pending_export_start", pendingExportStart);
+            state.putInt("pending_export_end", pendingExportEnd);
         }
+        super.onSaveInstanceState(state);
     }
 
     private void checkInternetConnection() {
@@ -807,6 +828,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        fileExecutor.shutdown();
         if (backgroundModeStore != null
                 && backgroundModeStore.isEnabled()
                 && corePanel != null

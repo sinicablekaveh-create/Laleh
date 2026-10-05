@@ -18,7 +18,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public final class TelegramClientManager {
     public enum AuthStep {
@@ -49,7 +48,7 @@ public final class TelegramClientManager {
     private volatile Listener listener;
     private final SharedPreferences discoveryPrefs;
     private volatile AuthStep currentStep = AuthStep.IDLE;
-    private Client client;
+    private volatile Client client;
     private int apiId;
     private String apiHash = "";
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
@@ -58,6 +57,10 @@ public final class TelegramClientManager {
     private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.User> userCache = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.Chat> chatCache = new ConcurrentHashMap<>();
+    private final Map<Long, TdApi.Supergroup> supergroupCache = new ConcurrentHashMap<>();
+    private final Map<Long, TdApi.BasicGroup> basicGroupCache = new ConcurrentHashMap<>();
+    private final Map<Long, Long> supergroupChatIds = new ConcurrentHashMap<>();
+    private final Map<Long, Long> basicGroupChatIds = new ConcurrentHashMap<>();
     private final java.util.Set<Long> directSenderIds = ConcurrentHashMap.newKeySet();
     private final java.util.concurrent.ExecutorService runtimeExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -277,6 +280,14 @@ public final class TelegramClientManager {
         return result;
     }
 
+    public int getFoundGroupCount() {
+        return foundGroups.size();
+    }
+
+    public int getObservedUserCount() {
+        return observedUsers.size();
+    }
+
     public GroupInfo getGroup(long chatId) {
         GroupInfo target = targetGroups.get(chatId);
         return target != null ? target : foundGroups.get(chatId);
@@ -466,29 +477,18 @@ public final class TelegramClientManager {
                 return;
             }
 
-            AtomicInteger remaining = new AtomicInteger(ids.length);
-            AtomicInteger newItems = new AtomicInteger(0);
-            AtomicInteger validItems = new AtomicInteger(0);
-
+            int newItems = 0;
+            int validItems = 0;
             for (long chatId : ids) {
-                local.send(new TdApi.GetChat(chatId), chatResult -> {
-                    if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
-                        TdApi.Chat chat = (TdApi.Chat) chatResult;
-                        validItems.incrementAndGet();
-                        boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureSearchResult(chat);
-                        if (isNew) newItems.incrementAndGet();
-                    }
-
-                    if (remaining.decrementAndGet() == 0 && callback != null) {
-                        callback.onResult(
-                                true,
-                                newItems.get(),
-                                validItems.get(),
-                                "جستجوی عمومی برای نمایش کامل شد."
-                        );
-                    }
-                });
+                TdApi.Chat chat = chatCache.get(chatId);
+                if (chat == null || !isGroupChat(chat)) continue;
+                validItems++;
+                boolean isNew = !foundGroups.containsKey(chat.id);
+                captureSearchResult(chat);
+                if (isNew) newItems++;
+            }
+            if (callback != null) {
+                callback.onResult(true, newItems, validItems, "جستجوی عمومی برای نمایش کامل شد.");
             }
         });
     }
@@ -525,29 +525,18 @@ public final class TelegramClientManager {
                 return;
             }
 
-            AtomicInteger remaining = new AtomicInteger(ids.length);
-            AtomicInteger newItems = new AtomicInteger(0);
-            AtomicInteger validItems = new AtomicInteger(0);
-
+            int newItems = 0;
+            int validItems = 0;
             for (long chatId : ids) {
-                local.send(new TdApi.GetChat(chatId), chatResult -> {
-                    if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
-                        TdApi.Chat chat = (TdApi.Chat) chatResult;
-                        validItems.incrementAndGet();
-                        boolean isNew = !targetGroups.containsKey(chat.id);
-                        inspectTargetGroup(chat);
-                        if (isNew) newItems.incrementAndGet();
-                    }
-
-                    if (remaining.decrementAndGet() == 0 && callback != null) {
-                        callback.onResult(
-                                true,
-                                newItems.get(),
-                                validItems.get(),
-                                "جستجوی گروه‌های موجود در حساب کامل شد."
-                        );
-                    }
-                });
+                TdApi.Chat chat = chatCache.get(chatId);
+                if (chat == null || !isGroupChat(chat)) continue;
+                validItems++;
+                boolean wasKnown = targetGroups.containsKey(chat.id);
+                inspectTargetGroup(chat);
+                if (!wasKnown && targetGroups.containsKey(chat.id)) newItems++;
+            }
+            if (callback != null) {
+                callback.onResult(true, newItems, validItems, "جستجوی گروه‌های موجود در حساب کامل شد.");
             }
         });
     }
@@ -765,8 +754,33 @@ public final class TelegramClientManager {
             if (chat != null) {
                 chatCache.put(chat.id, chat);
                 if (isGroupChat(chat)) {
+                    if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+                        supergroupChatIds.put(((TdApi.ChatTypeSupergroup) chat.type).supergroupId, chat.id);
+                    } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
+                        basicGroupChatIds.put(((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId, chat.id);
+                    }
                     inspectTargetGroup(chat);
                 }
+            }
+            return;
+        }
+
+        if (object instanceof TdApi.UpdateSupergroup) {
+            TdApi.Supergroup group = ((TdApi.UpdateSupergroup) object).supergroup;
+            if (group != null) {
+                supergroupCache.put(group.id, group);
+                Long chatId = supergroupChatIds.get(group.id);
+                if (chatId != null) inspectTargetGroup(chatCache.get(chatId));
+            }
+            return;
+        }
+
+        if (object instanceof TdApi.UpdateBasicGroup) {
+            TdApi.BasicGroup group = ((TdApi.UpdateBasicGroup) object).basicGroup;
+            if (group != null) {
+                basicGroupCache.put(group.id, group);
+                Long chatId = basicGroupChatIds.get(group.id);
+                if (chatId != null) inspectTargetGroup(chatCache.get(chatId));
             }
             return;
         }
@@ -846,25 +860,21 @@ public final class TelegramClientManager {
 
     private void inspectTargetGroup(TdApi.Chat chat) {
         if (chat == null || !isGroupChat(chat)) return;
-
-        Client local = client;
-        if (local == null) return;
-
-        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
-            long supergroupId = ((TdApi.ChatTypeSupergroup) chat.type).supergroupId;
-            local.send(new TdApi.GetSupergroup(supergroupId), result -> {
-                if (result instanceof TdApi.Supergroup) {
-                    updateTargetFromMeta(chat, result);
-                }
-            });
-        } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
-            long basicGroupId = ((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId;
-            local.send(new TdApi.GetBasicGroup(basicGroupId), result -> {
-                if (result instanceof TdApi.BasicGroup) {
-                    updateTargetFromMeta(chat, result);
-                }
-            });
+        Object meta = cachedGroupMetadata(chat);
+        if (meta != null) {
+            updateTargetFromMeta(chat, meta);
+            updateFoundFromMeta(chat, meta);
         }
+    }
+
+    private Object cachedGroupMetadata(TdApi.Chat chat) {
+        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+            return supergroupCache.get(((TdApi.ChatTypeSupergroup) chat.type).supergroupId);
+        }
+        if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
+            return basicGroupCache.get(((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId);
+        }
+        return null;
     }
 
     private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
@@ -891,7 +901,7 @@ public final class TelegramClientManager {
                 ? (existing == null ? "" : existing.link)
                 : "https://t.me/" + username;
 
-        targetGroups.put(chat.id, new GroupInfo(
+        GroupInfo updated = new GroupInfo(
                 0,
                 chat.id,
                 chat.title,
@@ -900,7 +910,9 @@ public final class TelegramClientManager {
                 describeMemberStatus(statusObject),
                 canSend,
                 false
-        ));
+        );
+        if (sameGroup(existing, updated)) return;
+        targetGroups.put(chat.id, updated);
         listener.onTargetGroupChanged(chat.id);
     }
 
@@ -919,23 +931,9 @@ public final class TelegramClientManager {
                 true
         ));
 
-        Client local = client;
-        if (local == null) return;
-
-        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
-            long supergroupId = ((TdApi.ChatTypeSupergroup) chat.type).supergroupId;
-            local.send(new TdApi.GetSupergroup(supergroupId), result -> {
-                if (result instanceof TdApi.Supergroup) {
-                    updateFoundFromMeta(chat, result);
-                }
-            });
-        } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
-            long basicGroupId = ((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId;
-            local.send(new TdApi.GetBasicGroup(basicGroupId), result -> {
-                if (result instanceof TdApi.BasicGroup) {
-                    updateFoundFromMeta(chat, result);
-                }
-            });
+        Object meta = cachedGroupMetadata(chat);
+        if (meta != null) {
+            updateFoundFromMeta(chat, meta);
         }
     }
 
@@ -977,7 +975,7 @@ public final class TelegramClientManager {
             nextGroupNumber = Math.max(nextGroupNumber, number + 1);
         }
 
-        foundGroups.put(info.id, new GroupInfo(
+        GroupInfo updated = new GroupInfo(
                 number,
                 info.id,
                 info.title,
@@ -986,11 +984,25 @@ public final class TelegramClientManager {
                 info.status,
                 false,
                 true
-        ));
+        );
+        if (sameGroup(existing, updated)) return false;
+        foundGroups.put(info.id, updated);
 
         schedulePersistDiscovery();
         listener.onFoundGroupsChanged();
         return isNew;
+    }
+
+    private static boolean sameGroup(GroupInfo first, GroupInfo second) {
+        return first != null
+                && first.number == second.number
+                && first.id == second.id
+                && first.title.equals(second.title)
+                && first.link.equals(second.link)
+                && first.memberCount == second.memberCount
+                && first.status.equals(second.status)
+                && first.canSend == second.canSend
+                && first.discoveredBySearch == second.discoveredBySearch;
     }
 
     private void observeDirectSender(TdApi.Message message) {
@@ -1093,18 +1105,20 @@ public final class TelegramClientManager {
     }
 
     private static boolean isJoinedGroupStatus(Object status) {
-        if (status == null) return false;
-        String name = status.getClass().getSimpleName();
-        return name.contains("Creator")
-                || name.contains("Administrator")
-                || name.contains("Member")
-                || name.contains("Restricted");
+        if (status instanceof TdApi.ChatMemberStatusCreator) {
+            return ((TdApi.ChatMemberStatusCreator) status).isMember;
+        }
+        if (status instanceof TdApi.ChatMemberStatusRestricted) {
+            return ((TdApi.ChatMemberStatusRestricted) status).isMember;
+        }
+        return status instanceof TdApi.ChatMemberStatusAdministrator
+                || status instanceof TdApi.ChatMemberStatusMember;
     }
 
     private static boolean canSendFromStatus(Object status) {
-        if (status == null) return false;
-        String name = status.getClass().getSimpleName();
-        return name.contains("Creator") || name.contains("Administrator");
+        return status instanceof TdApi.ChatMemberStatusAdministrator
+                || (status instanceof TdApi.ChatMemberStatusCreator
+                    && ((TdApi.ChatMemberStatusCreator) status).isMember);
     }
 
     private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
@@ -1113,13 +1127,16 @@ public final class TelegramClientManager {
 
     private static String describeMemberStatus(Object status) {
         if (status == null) return "وضعیت عضویت نامشخص";
-        String name = status.getClass().getSimpleName();
-        if (name.contains("Creator")) return "مالک گروه ✅";
-        if (name.contains("Administrator")) return "مدیر گروه ✅";
-        if (name.contains("Member")) return "عضو گروه ✅";
-        if (name.contains("Restricted")) return "عضو محدود ⚠️";
-        if (name.contains("Banned")) return "مسدود ⛔";
-        if (name.contains("Left")) return "عضو نیست";
+        if (status instanceof TdApi.ChatMemberStatusCreator) {
+            return isJoinedGroupStatus(status) ? "مالک گروه ✅" : "مالک گروه — عضو نیست";
+        }
+        if (status instanceof TdApi.ChatMemberStatusAdministrator) return "مدیر گروه ✅";
+        if (status instanceof TdApi.ChatMemberStatusMember) return "عضو گروه ✅";
+        if (status instanceof TdApi.ChatMemberStatusRestricted) {
+            return isJoinedGroupStatus(status) ? "عضو محدود ⚠️" : "محدود — عضو نیست";
+        }
+        if (status instanceof TdApi.ChatMemberStatusBanned) return "مسدود ⛔";
+        if (status instanceof TdApi.ChatMemberStatusLeft) return "عضو نیست";
         return "وضعیت نامشخص";
     }
 
@@ -1223,7 +1240,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.10.0";
+        request.applicationVersion = "1.11.0";
 
         sendAuth(request);
     }

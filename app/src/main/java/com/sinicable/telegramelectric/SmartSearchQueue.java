@@ -18,6 +18,7 @@ public final class SmartSearchQueue {
     private final SharedPreferences prefs;
     private final WordBank wordBank;
     private final Map<String, State> states = new HashMap<>();
+    private int syncedWordCount = -1;
 
     public SmartSearchQueue(Context context, WordBank wordBank) {
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -100,6 +101,7 @@ public final class SmartSearchQueue {
     }
 
     private void syncWords() {
+        if (syncedWordCount == wordBank.size()) return;
         List<String> words = wordBank.allWords();
         for (String word : words) {
             if (word == null || word.trim().isEmpty()) continue;
@@ -109,6 +111,7 @@ public final class SmartSearchQueue {
                 return state;
             });
         }
+        syncedWordCount = words.size();
     }
 
     private void load() {

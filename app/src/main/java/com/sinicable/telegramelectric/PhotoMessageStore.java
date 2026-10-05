@@ -23,28 +23,31 @@ final class PhotoMessageStore {
             extension = "jpg";
         }
 
-        clear(context, null);
+        File output = File.createTempFile(PREFIX, "." + extension, context.getFilesDir());
+        boolean complete = false;
+        try {
+            try (InputStream input = context.getContentResolver().openInputStream(uri);
+                 FileOutputStream fileOutput = new FileOutputStream(output)) {
+                if (input == null) {
+                    throw new IllegalStateException("فایل عکس باز نشد.");
+                }
 
-        File output = new File(context.getFilesDir(), PREFIX + extension);
-        try (InputStream input = context.getContentResolver().openInputStream(uri);
-             FileOutputStream fileOutput = new FileOutputStream(output)) {
-            if (input == null) {
-                throw new IllegalStateException("فایل عکس باز نشد.");
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    fileOutput.write(buffer, 0, read);
+                }
+                fileOutput.flush();
             }
 
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = input.read(buffer)) != -1) {
-                fileOutput.write(buffer, 0, read);
+            if (output.length() == 0L) {
+                throw new IllegalStateException("ذخیره عکس ناموفق بود.");
             }
-            fileOutput.flush();
+            complete = true;
+            return output.getAbsolutePath();
+        } finally {
+            if (!complete) output.delete();
         }
-
-        if (!output.exists() || output.length() == 0L) {
-            throw new IllegalStateException("ذخیره عکس ناموفق بود.");
-        }
-
-        return output.getAbsolutePath();
     }
 
     static void clear(Context context, String keepPath) {

@@ -172,8 +172,9 @@ public final class CentralCore {
 
     public synchronized int selectedGroupCount() {
         int count = 0;
-        for (TelegramClientManager.GroupInfo info : telegram.getTargetGroups()) {
-            if (selectedGroups.contains(info.id) && info.canSend) {
+        for (Long id : selectedGroups) {
+            TelegramClientManager.GroupInfo info = telegram.getTargetGroup(id);
+            if (info != null && info.canSend) {
                 count++;
             }
         }
