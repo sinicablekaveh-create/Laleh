@@ -66,6 +66,13 @@ public final class MainActivity extends Activity {
             }
 
             @Override
+            public void onRecipientsChanged() {
+                runOnUiThread(() -> {
+                    // UI sections that depend on groups/contacts are refreshed below.
+                });
+            }
+
+            @Override
             public void onError(String message) {
                 runOnUiThread(() -> {
                     statusText.setText("خطا: " + message);
