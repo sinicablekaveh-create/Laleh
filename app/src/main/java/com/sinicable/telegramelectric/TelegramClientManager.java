@@ -211,6 +211,68 @@ public final class TelegramClientManager {
         });
     }
 
+    public void searchPublicGroups(String query, DiscoveryCallback callback) {
+        Client local = client;
+        String clean = query == null ? "" : query.trim();
+        if (local == null || currentStep != AuthStep.READY) {
+            if (callback != null) callback.onResult(false, 0, 0, "تلگرام آماده جستجو نیست.");
+            return;
+        }
+        if (clean.length() < 2) {
+            if (callback != null) callback.onResult(false, 0, 0, "عبارت جستجو کوتاه است.");
+            return;
+        }
+
+        final TdApi.Function request;
+        try {
+            request = buildSearchPublicChatsFunction(clean);
+        } catch (Throwable error) {
+            if (callback != null) {
+                callback.onResult(false, 0, 0, "ساخت جستجو ناموفق بود: " + safeMessage(error));
+            }
+            return;
+        }
+
+        local.send(request, result -> {
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                if (callback != null) {
+                    callback.onResult(false, 0, 0, "Telegram " + error.code + ": " + error.message);
+                }
+                return;
+            }
+
+            long[] ids = extractLongArrayField(result, "chatIds");
+            if (ids.length == 0) {
+                if (callback != null) callback.onResult(true, 0, 0, "گروهی پیدا نشد.");
+                return;
+            }
+
+            AtomicInteger remaining = new AtomicInteger(ids.length);
+            AtomicInteger newItems = new AtomicInteger(0);
+            AtomicInteger validItems = new AtomicInteger(0);
+
+            for (long chatId : ids) {
+                local.send(new TdApi.GetChat(chatId), chatResult -> {
+                    if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
+                        validItems.incrementAndGet();
+                        enrichAndStoreGroup((TdApi.Chat) chatResult, isNew -> {
+                            if (isNew) newItems.incrementAndGet();
+                            if (remaining.decrementAndGet() == 0 && callback != null) {
+                                callback.onResult(true, newItems.get(), validItems.get(), "جستجو کامل شد.");
+                            }
+                        });
+                        return;
+                    }
+
+                    if (remaining.decrementAndGet() == 0 && callback != null) {
+                        callback.onResult(true, newItems.get(), validItems.get(), "جستجو کامل شد.");
+                    }
+                });
+            }
+        });
+    }
+
     public void setProxyFromLink(String link) {
         final ProxyLinkParser.ProxyConfig config;
         try {
