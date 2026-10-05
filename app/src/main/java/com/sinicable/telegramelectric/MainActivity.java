@@ -1,15 +1,18 @@
 package com.sinicable.telegramelectric;
 
+import android.Manifest;
 import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -19,6 +22,7 @@ import android.view.View;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -29,6 +33,7 @@ import java.util.List;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_FILE = 7001;
+    private static final int REQUEST_NOTIFICATION_PERMISSION = 7002;
 
     private TelegramClientManager telegram;
     private WordBank wordBank;
@@ -113,6 +118,17 @@ public final class MainActivity extends Activity {
         root.setPadding(dp(18), dp(18), dp(18), dp(28));
         root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         scroll.addView(root);
+
+        ImageView appLogo = new ImageView(this);
+        appLogo.setImageResource(R.drawable.app_logo);
+        appLogo.setAdjustViewBounds(true);
+        appLogo.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams logoParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(230)
+        );
+        logoParams.setMargins(0, 0, 0, dp(8));
+        root.addView(appLogo, logoParams);
 
         TextView title = text("Telegram Electric", 26, true);
         title.setGravity(Gravity.CENTER);
@@ -250,6 +266,7 @@ public final class MainActivity extends Activity {
             backgroundModeStore.setEnabled(isChecked);
 
             if (isChecked) {
+                ensureNotificationPermission();
                 BackgroundRuntime.attach(telegram, wordBank, corePanel.getCore());
                 BackgroundCoreService.start(this);
                 Toast.makeText(
@@ -338,6 +355,17 @@ public final class MainActivity extends Activity {
         return scroll;
     }
 
+
+    private void ensureNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(
+                    new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                    REQUEST_NOTIFICATION_PERMISSION
+            );
+        }
+    }
 
     private TelegramClientManager.Listener createTelegramUiListener() {
         return new TelegramClientManager.Listener() {
@@ -716,7 +744,6 @@ public final class MainActivity extends Activity {
                 && wordBank != null) {
             detachUiListenersForBackground();
             BackgroundRuntime.attach(telegram, wordBank, corePanel.getCore());
-            BackgroundCoreService.start(this);
         } else {
             if (corePanel != null) corePanel.shutdown();
             if (telegram != null) telegram.close();
