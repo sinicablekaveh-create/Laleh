@@ -178,6 +178,95 @@ public final class TelegramClientManager {
         return foundGroups.get(chatId);
     }
 
+    public void sendPhotoToChat(
+            long chatId,
+            String photoPath,
+            String caption,
+            SendCallback callback
+    ) {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            if (callback != null) callback.onResult(false, "تلگرام آماده ارسال نیست.");
+            return;
+        }
+
+        File photoFile = photoPath == null ? null : new File(photoPath);
+        if (photoFile == null || !photoFile.isFile() || photoFile.length() == 0L) {
+            if (callback != null) callback.onResult(false, "فایل عکس پیدا نشد.");
+            return;
+        }
+
+        final TdApi.InputMessageContent content;
+        try {
+            Class<?> inputFileLocalClass =
+                    Class.forName("org.drinkless.tdlib.TdApi$InputFileLocal");
+            Object inputFile = inputFileLocalClass
+                    .getConstructor(String.class)
+                    .newInstance(photoFile.getAbsolutePath());
+
+            Class<?> inputMessagePhotoClass =
+                    Class.forName("org.drinkless.tdlib.TdApi$InputMessagePhoto");
+            Object photoContent = inputMessagePhotoClass
+                    .getDeclaredConstructor()
+                    .newInstance();
+
+            setField(photoContent, "photo", inputFile);
+
+            if (hasField(inputMessagePhotoClass, "caption")) {
+                setField(
+                        photoContent,
+                        "caption",
+                        new TdApi.FormattedText(
+                                caption == null ? "" : caption.trim(),
+                                null
+                        )
+                );
+            }
+            if (hasField(inputMessagePhotoClass, "width")) {
+                setField(photoContent, "width", 0);
+            }
+            if (hasField(inputMessagePhotoClass, "height")) {
+                setField(photoContent, "height", 0);
+            }
+            if (hasField(inputMessagePhotoClass, "ttl")) {
+                setField(photoContent, "ttl", 0);
+            }
+            if (hasField(inputMessagePhotoClass, "addedStickerFileIds")) {
+                setField(photoContent, "addedStickerFileIds", new int[0]);
+            }
+            if (hasField(inputMessagePhotoClass, "showCaptionAboveMedia")) {
+                setField(photoContent, "showCaptionAboveMedia", false);
+            }
+            if (hasField(inputMessagePhotoClass, "hasSpoiler")) {
+                setField(photoContent, "hasSpoiler", false);
+            }
+
+            content = (TdApi.InputMessageContent) photoContent;
+        } catch (Throwable error) {
+            if (callback != null) {
+                callback.onResult(
+                        false,
+                        "ساخت پیام عکس ناموفق بود: " + safeMessage(error)
+                );
+            }
+            return;
+        }
+
+        local.send(
+                new TdApi.SendMessage(chatId, null, null, null, null, content),
+                result -> {
+                    if (result instanceof TdApi.Error) {
+                        TdApi.Error error = (TdApi.Error) result;
+                        if (callback != null) {
+                            callback.onResult(false, error.code + ": " + error.message);
+                        }
+                    } else {
+                        if (callback != null) callback.onResult(true, "عکس و متن ارسال شد.");
+                    }
+                }
+        );
+    }
+
     public void sendTextToChat(long chatId, String message, SendCallback callback) {
         Client local = client;
         if (local == null || currentStep != AuthStep.READY) {
