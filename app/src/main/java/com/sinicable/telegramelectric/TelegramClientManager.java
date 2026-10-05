@@ -482,18 +482,7 @@ public final class TelegramClientManager {
         if (object instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat) object).chat;
             if (chat != null && isGroupChat(chat)) {
-                GroupInfo oldInfo = foundGroups.get(chat.id);
-                GroupInfo info = new GroupInfo(
-                        chat.id,
-                        chat.title,
-                        oldInfo == null ? "" : oldInfo.link,
-                        oldInfo == null ? 0 : oldInfo.memberCount,
-                        oldInfo == null ? "موجود در حساب تلگرام" : oldInfo.status,
-                        oldInfo != null && oldInfo.canSend
-                );
-                foundGroups.put(chat.id, info);
-                persistDiscovery();
-                listener.onRecipientsChanged();
+                captureKnownGroup(chat);
             }
             return;
         }
