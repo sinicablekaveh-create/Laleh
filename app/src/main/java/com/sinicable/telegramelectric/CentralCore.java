@@ -199,7 +199,7 @@ public final class CentralCore {
         }
 
         if (selectedGroupCount() <= 0) {
-            listener.onStatus("هسته مرکزی: حداقل یک گروه پیدا‌شده را به‌عنوان هدف انتخاب کنید.");
+            listener.onStatus("هسته مرکزی: حداقل یک گروه مجاز برای ارسال زمان‌بندی‌شده انتخاب کنید.");
             return false;
         }
 
@@ -364,7 +364,7 @@ public final class CentralCore {
 
     private synchronized List<TelegramClientManager.GroupInfo> eligibleTargets() {
         List<TelegramClientManager.GroupInfo> result = new ArrayList<>();
-        for (TelegramClientManager.GroupInfo info : telegram.getFoundGroups()) {
+        for (TelegramClientManager.GroupInfo info : telegram.getTargetGroups()) {
             if (selectedGroups.contains(info.id) && info.canSend) {
                 result.add(info);
             }
