@@ -52,6 +52,8 @@ public final class CentralCore {
 
     private boolean enabled;
     private boolean searchInFlight;
+    private boolean sendInFlight;
+    private long runGeneration;
     private String message;
     private String photoPath;
     private long photoRevision;
@@ -149,13 +151,15 @@ public final class CentralCore {
     }
 
     public synchronized void setMode(ScheduleMode value) {
-        mode = value == null ? ScheduleMode.EVERY_5_MINUTES : value;
+        ScheduleMode next = value == null ? ScheduleMode.EVERY_5_MINUTES : value;
+        if (mode == next) return;
+        mode = next;
         prefs.edit().putString(KEY_MODE, mode.name()).apply();
 
         if (enabled) {
             handler.removeCallbacks(sendTick);
             handler.removeCallbacks(discoveryTick);
-            handler.postDelayed(sendTick, 1_000L);
+            if (!sendInFlight) handler.postDelayed(sendTick, 1_000L);
         }
     }
 
@@ -164,6 +168,7 @@ public final class CentralCore {
     }
 
     public synchronized void setGroupSelected(long id, boolean selected) {
+        if (selectedGroups.contains(id) == selected) return;
         if (selected) {
             selectedGroups.add(id);
         } else {
@@ -179,9 +184,10 @@ public final class CentralCore {
 
     public synchronized int selectedGroupCount() {
         int count = 0;
+        boolean withPhoto = hasPhoto();
         for (Long id : selectedGroups) {
             TelegramClientManager.GroupInfo info = telegram.getTargetGroup(id);
-            if (info != null && info.canSend) {
+            if (allowsSelectedContent(info, withPhoto)) {
                 count++;
             }
         }
@@ -201,29 +207,26 @@ public final class CentralCore {
     }
 
     public synchronized boolean start() {
-        if (message == null || message.trim().isEmpty()) {
-            listener.onStatus("هسته مرکزی: متن پیام را وارد کنید.");
-            return false;
+        if (!enabled) {
+            runGeneration++;
+            searchInFlight = false;
+            sendInFlight = false;
         }
-
-        if (selectedGroupCount() <= 0) {
-            listener.onStatus("هسته مرکزی: حداقل یک گروه مجاز برای ارسال زمان‌بندی‌شده انتخاب کنید.");
-            return false;
-        }
-
         enabled = true;
         prefs.edit().putBoolean(KEY_ENABLED, true).apply();
         handler.removeCallbacks(sendTick);
         handler.removeCallbacks(discoveryTick);
-        listener.onStatus("هسته مرکزی فعال شد؛ ارسال فقط به گروه‌های هدف انتخاب‌شده انجام می‌شود.");
-        handler.post(sendTick);
+        listener.onStatus("هسته مرکزی فعال شد؛ جستجو شروع می‌شود و ارسال فقط با متن و گروه هدف مجاز انجام می‌شود.");
+        if (!sendInFlight) handler.post(sendTick);
         listener.onDataChanged();
         return true;
     }
 
     public synchronized void stop() {
         enabled = false;
+        runGeneration++;
         searchInFlight = false;
+        sendInFlight = false;
         windowEndsAt = 0L;
         prefs.edit().putBoolean(KEY_ENABLED, false).apply();
         handler.removeCallbacks(sendTick);
@@ -233,13 +236,19 @@ public final class CentralCore {
     }
 
     public synchronized void shutdown() {
+        runGeneration++;
         handler.removeCallbacks(sendTick);
         handler.removeCallbacks(discoveryTick);
         searchInFlight = false;
+        sendInFlight = false;
     }
 
     private void runSendCycle() {
-        if (!isEnabled()) return;
+        final long generation;
+        synchronized (this) {
+            if (!enabled || sendInFlight) return;
+            generation = runGeneration;
+        }
 
         if (!telegram.isReadyForSending()) {
             listener.onStatus("هسته مرکزی: منتظر اتصال کامل تلگرام...");
@@ -247,10 +256,16 @@ public final class CentralCore {
             return;
         }
 
+        if (getMessage().trim().isEmpty()) {
+            listener.onStatus("جستجوی هسته فعال است؛ برای ارسال، متن پیام را وارد و تنظیمات را ثبت کنید.");
+            beginDiscoveryWindow(60_000L);
+            return;
+        }
+
         final List<TelegramClientManager.GroupInfo> targets = eligibleTargets();
         if (targets.isEmpty()) {
-            listener.onStatus("هسته مرکزی: گروه هدف قابل ارسال پیدا نشد. انتخاب گروه‌ها را بررسی کنید.");
-            handler.postDelayed(sendTick, 60_000L);
+            listener.onStatus("جستجوی هسته فعال است؛ برای ارسال، از «انتخاب گروه هدف» یک گروه دارای اجازهٔ ارسال انتخاب کنید.");
+            beginDiscoveryWindow(60_000L);
             return;
         }
 
@@ -258,6 +273,7 @@ public final class CentralCore {
         synchronized (this) {
             if (targetCursor >= targets.size()) targetCursor = 0;
             target = targets.get(targetCursor++);
+            sendInFlight = true;
         }
 
         listener.onStatus(
@@ -266,8 +282,11 @@ public final class CentralCore {
                         : "در حال ارسال خودکار به «" + target.title + "» ..."
         );
 
-        TelegramClientManager.SendCallback sendCallback = (success, resultMessage) -> {
-            if (!isEnabled()) return;
+        TelegramClientManager.SendCallback sendCallback = (success, resultMessage) -> handler.post(() -> {
+            synchronized (CentralCore.this) {
+                if (!enabled || generation != runGeneration) return;
+                sendInFlight = false;
+            }
 
             if (success) {
                 synchronized (CentralCore.this) {
@@ -289,7 +308,7 @@ public final class CentralCore {
                 }
             }
             listener.onDataChanged();
-        };
+        });
 
         if (hasPhoto()) {
             telegram.sendPhotoToChat(
@@ -310,8 +329,6 @@ public final class CentralCore {
         handler.removeCallbacks(discoveryTick);
 
         windowEndsAt = System.currentTimeMillis() + duration;
-        searchInFlight = false;
-
         handler.post(discoveryTick);
         handler.postDelayed(sendTick, duration);
     }
@@ -320,9 +337,15 @@ public final class CentralCore {
         if (!isEnabled()) return;
 
         long remaining;
+        final long generation;
         synchronized (this) {
+            generation = runGeneration;
             remaining = windowEndsAt - System.currentTimeMillis();
             if (remaining <= 10_000L) return;
+            if (!telegram.isReadyForSending()) {
+                handler.postDelayed(discoveryTick, SEARCH_STEP_MS);
+                return;
+            }
             if (searchInFlight) {
                 handler.postDelayed(discoveryTick, 5_000L);
                 return;
@@ -342,8 +365,9 @@ public final class CentralCore {
         int score = smartQueue.scoreFor(query);
         listener.onStatus("هسته مرکزی: جستجوی گروه‌های عمومی با «" + query + "» — امتیاز " + score);
 
-        telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> {
+        telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> handler.post(() -> {
             synchronized (CentralCore.this) {
+                if (!enabled || generation != runGeneration) return;
                 searchInFlight = false;
             }
 
@@ -365,19 +389,25 @@ public final class CentralCore {
                 left = windowEndsAt - System.currentTimeMillis();
             }
             if (isEnabled() && left > 10_000L) {
+                handler.removeCallbacks(discoveryTick);
                 handler.postDelayed(discoveryTick, Math.min(SEARCH_STEP_MS, Math.max(5_000L, left - 10_000L)));
             }
-        });
+        }));
     }
 
     private synchronized List<TelegramClientManager.GroupInfo> eligibleTargets() {
         List<TelegramClientManager.GroupInfo> result = new ArrayList<>();
+        boolean withPhoto = hasPhoto();
         for (TelegramClientManager.GroupInfo info : telegram.getTargetGroups()) {
-            if (selectedGroups.contains(info.id) && info.canSend) {
+            if (selectedGroups.contains(info.id) && allowsSelectedContent(info, withPhoto)) {
                 result.add(info);
             }
         }
         return result;
+    }
+
+    private boolean allowsSelectedContent(TelegramClientManager.GroupInfo info, boolean withPhoto) {
+        return info != null && (withPhoto ? info.canSendPhotos : info.canSend);
     }
 
     private synchronized long intervalMillis() {

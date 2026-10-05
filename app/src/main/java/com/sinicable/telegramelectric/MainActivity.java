@@ -423,6 +423,13 @@ public final class MainActivity extends Activity {
             }
 
             @Override
+            public void onTargetGroupsLoadChanged() {
+                runOnUiThread(() -> {
+                    if (corePanel != null) corePanel.onTargetGroupsLoadChanged();
+                });
+            }
+
+            @Override
             public void onFoundGroupsChanged() {
                 runOnUiThread(() -> {
                     if (corePanel != null) corePanel.onFoundGroupsChanged();

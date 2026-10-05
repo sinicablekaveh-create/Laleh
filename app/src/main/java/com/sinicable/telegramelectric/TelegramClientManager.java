@@ -30,6 +30,7 @@ public final class TelegramClientManager {
         void onProxyStatus(String message);
         void onConnectionStatus(String message, boolean ready);
         void onTargetGroupChanged(long chatId);
+        default void onTargetGroupsLoadChanged() { }
         void onFoundGroupsChanged();
         void onObservedUsersChanged();
         void onError(String message);
@@ -76,6 +77,11 @@ public final class TelegramClientManager {
     private int nextContactNumber = 1;
     private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
     private volatile boolean connectionReady = false;
+    private final java.util.concurrent.atomic.AtomicBoolean targetGroupsLoading =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicInteger targetLoadGeneration =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private volatile String targetGroupsLoadMessage = "برای دریافت گروه‌های عضو، ابتدا وارد حساب تلگرام شو.";
 
 
     public static final class GroupInfo {
@@ -86,6 +92,7 @@ public final class TelegramClientManager {
         public final int memberCount;
         public final String status;
         public final boolean canSend;
+        public final boolean canSendPhotos;
         public final boolean discoveredBySearch;
 
         GroupInfo(
@@ -98,6 +105,13 @@ public final class TelegramClientManager {
                 boolean canSend,
                 boolean discoveredBySearch
         ) {
+            this(number, id, title, link, memberCount, status, canSend, canSend, discoveredBySearch);
+        }
+
+        GroupInfo(
+                int number, long id, String title, String link, int memberCount,
+                String status, boolean canSend, boolean canSendPhotos, boolean discoveredBySearch
+        ) {
             this.number = Math.max(0, number);
             this.id = id;
             this.title = cleanLabel(title, String.valueOf(id));
@@ -105,6 +119,7 @@ public final class TelegramClientManager {
             this.memberCount = Math.max(0, memberCount);
             this.status = cleanLabel(status, "وضعیت نامشخص");
             this.canSend = canSend;
+            this.canSendPhotos = canSendPhotos;
             this.discoveredBySearch = discoveredBySearch;
         }
 
@@ -205,6 +220,7 @@ public final class TelegramClientManager {
                 synchronized (TelegramClientManager.this) {
                     client = created;
                 }
+                if (currentStep == AuthStep.READY) refreshTargetGroups();
 
                 ProxyLinkParser.ProxyConfig queued = pendingProxy;
                 if (queued != null) {
@@ -236,6 +252,16 @@ public final class TelegramClientManager {
         Client local = client;
         client = null;
         connectionReady = false;
+        targetLoadGeneration.incrementAndGet();
+        targetGroupsLoading.set(false);
+        targetGroups.clear();
+        chatCache.clear();
+        supergroupCache.clear();
+        basicGroupCache.clear();
+        supergroupChatIds.clear();
+        basicGroupChatIds.clear();
+        targetGroupsLoadMessage = "در انتظار ورود و دریافت گروه‌های حساب...";
+        listener.onTargetGroupsLoadChanged();
 
         if (local != null) {
             try {
@@ -266,6 +292,70 @@ public final class TelegramClientManager {
 
     public GroupInfo getTargetGroup(long chatId) {
         return targetGroups.get(chatId);
+    }
+
+    public boolean isLoadingTargetGroups() {
+        return targetGroupsLoading.get();
+    }
+
+    public String getTargetGroupsLoadMessage() {
+        return targetGroupsLoadMessage;
+    }
+
+    public void refreshTargetGroups() {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            targetGroupsLoadMessage = "برای انتخاب گروه‌های عضو، ابتدا وارد حساب تلگرام شو.";
+            listener.onTargetGroupsLoadChanged();
+            return;
+        }
+        if (!targetGroupsLoading.compareAndSet(false, true)) return;
+        int generation = targetLoadGeneration.incrementAndGet();
+        java.util.concurrent.atomic.AtomicInteger pending = new java.util.concurrent.atomic.AtomicInteger(2);
+        java.util.concurrent.atomic.AtomicReference<String> error = new java.util.concurrent.atomic.AtomicReference<>("");
+        targetGroupsLoadMessage = "در حال دریافت گروه‌های عضو از فهرست اصلی و آرشیو...";
+        listener.onTargetGroupsLoadChanged();
+        runtimeExecutor.execute(() -> loadTargetChatList(local, new TdApi.ChatListMain(), generation, pending, error));
+        runtimeExecutor.execute(() -> loadTargetChatList(local, new TdApi.ChatListArchive(), generation, pending, error));
+    }
+
+    private void loadTargetChatList(
+            Client local, TdApi.ChatList list, int generation,
+            java.util.concurrent.atomic.AtomicInteger pending,
+            java.util.concurrent.atomic.AtomicReference<String> error
+    ) {
+        if (generation != targetLoadGeneration.get()) return;
+        if (local != client || currentStep != AuthStep.READY) {
+            error.compareAndSet("", "اتصال تلگرام آماده نیست؛ فهرست را دوباره باز کن.");
+            finishTargetChatList(generation, pending, error);
+            return;
+        }
+        local.send(new TdApi.LoadChats(list, 100), result -> {
+            if (generation != targetLoadGeneration.get()) return;
+            if (result instanceof TdApi.Ok) {
+                runtimeExecutor.execute(() -> loadTargetChatList(local, list, generation, pending, error));
+                return;
+            }
+            if (result instanceof TdApi.Error) {
+                TdApi.Error failure = (TdApi.Error) result;
+                if (failure.code != 404) error.compareAndSet("", "Telegram " + failure.code + ": " + failure.message);
+            } else {
+                error.compareAndSet("", "پاسخ دریافت گروه‌ها نامعتبر بود.");
+            }
+            finishTargetChatList(generation, pending, error);
+        });
+    }
+
+    private void finishTargetChatList(
+            int generation, java.util.concurrent.atomic.AtomicInteger pending,
+            java.util.concurrent.atomic.AtomicReference<String> error
+    ) {
+        if (generation != targetLoadGeneration.get() || pending.decrementAndGet() != 0) return;
+        targetGroupsLoading.set(false);
+        targetGroupsLoadMessage = error.get().isEmpty()
+                ? targetGroups.size() + " گروه عضو حساب برای انتخاب دریافت شد."
+                : "دریافت گروه‌ها کامل نشد: " + error.get();
+        listener.onTargetGroupsLoadChanged();
     }
 
     public List<GroupInfo> getFoundGroups() {
@@ -305,6 +395,12 @@ public final class TelegramClientManager {
             return;
         }
 
+        GroupInfo target = targetGroups.get(chatId);
+        if (target == null || !target.canSendPhotos) {
+            if (callback != null) callback.onResult(false, "این گروه عضو حساب نیست یا اجازهٔ ارسال عکس ندارد.");
+            return;
+        }
+
         File photoFile = photoPath == null ? null : new File(photoPath);
         if (photoFile == null || !photoFile.isFile() || photoFile.length() == 0L) {
             if (callback != null) callback.onResult(false, "فایل عکس پیدا نشد.");
@@ -325,7 +421,15 @@ public final class TelegramClientManager {
                     .getDeclaredConstructor()
                     .newInstance();
 
-            setField(photoContent, "photo", inputFile);
+            Field photoField = inputMessagePhotoClass.getField("photo");
+            Object photoDetails = photoContent;
+            if (photoField.getType().isInstance(inputFile)) {
+                photoField.set(photoContent, inputFile);
+            } else {
+                photoDetails = photoField.getType().getDeclaredConstructor().newInstance();
+                setField(photoDetails, "photo", inputFile);
+                photoField.set(photoContent, photoDetails);
+            }
 
             if (hasField(inputMessagePhotoClass, "caption")) {
                 setField(
@@ -337,17 +441,18 @@ public final class TelegramClientManager {
                         )
                 );
             }
-            if (hasField(inputMessagePhotoClass, "width")) {
-                setField(photoContent, "width", 0);
+            if (hasField(photoDetails.getClass(), "width")) {
+                setField(photoDetails, "width", 0);
             }
-            if (hasField(inputMessagePhotoClass, "height")) {
-                setField(photoContent, "height", 0);
+            if (hasField(photoDetails.getClass(), "height")) {
+                setField(photoDetails, "height", 0);
             }
             if (hasField(inputMessagePhotoClass, "ttl")) {
                 setField(photoContent, "ttl", 0);
             }
-            if (hasField(inputMessagePhotoClass, "addedStickerFileIds")) {
-                setField(photoContent, "addedStickerFileIds", new int[0]);
+            if (hasField(photoDetails.getClass(), "addedStickerFileIds")) {
+                Field stickers = photoDetails.getClass().getField("addedStickerFileIds");
+                stickers.set(photoDetails, Array.newInstance(stickers.getType().getComponentType(), 0));
             }
             if (hasField(inputMessagePhotoClass, "showCaptionAboveMedia")) {
                 setField(photoContent, "showCaptionAboveMedia", false);
@@ -386,6 +491,11 @@ public final class TelegramClientManager {
         Client local = client;
         if (local == null || currentStep != AuthStep.READY) {
             if (callback != null) callback.onResult(false, "تلگرام آماده ارسال نیست.");
+            return;
+        }
+        GroupInfo target = targetGroups.get(chatId);
+        if (target == null || !target.canSend) {
+            if (callback != null) callback.onResult(false, "این گروه عضو حساب نیست یا اجازهٔ ارسال متن ندارد.");
             return;
         }
         String clean = message == null ? "" : message.trim();
@@ -785,6 +895,16 @@ public final class TelegramClientManager {
             return;
         }
 
+        if (object instanceof TdApi.UpdateChatPermissions) {
+            TdApi.UpdateChatPermissions update = (TdApi.UpdateChatPermissions) object;
+            TdApi.Chat chat = chatCache.get(update.chatId);
+            if (chat != null) {
+                chat.permissions = update.permissions;
+                inspectTargetGroup(chat);
+            }
+            return;
+        }
+
         if (object instanceof TdApi.UpdateChatTitle) {
             TdApi.UpdateChatTitle update = (TdApi.UpdateChatTitle) object;
             TdApi.Chat cached = chatCache.get(update.chatId);
@@ -803,6 +923,7 @@ public final class TelegramClientManager {
                         target.memberCount,
                         target.status,
                         target.canSend,
+                        target.canSendPhotos,
                         false
                 ));
                 listener.onTargetGroupChanged(update.chatId);
@@ -881,8 +1002,8 @@ public final class TelegramClientManager {
     private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
         Object statusObject = readObjectField(meta, "status");
         boolean joined = isJoinedGroupStatus(statusObject);
-        boolean canSend = canSendFromStatus(statusObject)
-                && chatAllowsBasicMessages(chat, statusObject);
+        boolean canSend = chatAllowsMessages(chat, statusObject, false);
+        boolean canSendPhotos = chatAllowsMessages(chat, statusObject, true);
 
         if (!joined) {
             if (targetGroups.remove(chat.id) != null) {
@@ -910,6 +1031,7 @@ public final class TelegramClientManager {
                 memberCount,
                 describeMemberStatus(statusObject),
                 canSend,
+                canSendPhotos,
                 false
         );
         if (sameGroup(existing, updated)) return;
@@ -1003,6 +1125,7 @@ public final class TelegramClientManager {
                 && first.memberCount == second.memberCount
                 && first.status.equals(second.status)
                 && first.canSend == second.canSend
+                && first.canSendPhotos == second.canSendPhotos
                 && first.discoveredBySearch == second.discoveredBySearch;
     }
 
@@ -1116,14 +1239,23 @@ public final class TelegramClientManager {
                 || status instanceof TdApi.ChatMemberStatusMember;
     }
 
-    private static boolean canSendFromStatus(Object status) {
+    private static boolean isPrivilegedGroupMember(Object status) {
         return status instanceof TdApi.ChatMemberStatusAdministrator
                 || (status instanceof TdApi.ChatMemberStatusCreator
                     && ((TdApi.ChatMemberStatusCreator) status).isMember);
     }
 
-    private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
-        return canSendFromStatus(status);
+    private static boolean chatAllowsMessages(TdApi.Chat chat, Object status, boolean photo) {
+        if (!isJoinedGroupStatus(status)) return false;
+        if (isPrivilegedGroupMember(status)) return true;
+        if (chat == null || chat.permissions == null) return false;
+        boolean groupAllows = photo ? chat.permissions.canSendPhotos : chat.permissions.canSendBasicMessages;
+        if (!groupAllows) return false;
+        if (status instanceof TdApi.ChatMemberStatusRestricted) {
+            TdApi.ChatPermissions personal = ((TdApi.ChatMemberStatusRestricted) status).permissions;
+            return personal != null && (photo ? personal.canSendPhotos : personal.canSendBasicMessages);
+        }
+        return status instanceof TdApi.ChatMemberStatusMember;
     }
 
     private static String describeMemberStatus(Object status) {
@@ -1210,6 +1342,7 @@ public final class TelegramClientManager {
         } else if (state instanceof TdApi.AuthorizationStateReady) {
             currentStep = AuthStep.READY;
             listener.onAuthStep(currentStep, "متصل شد. بانک واژه می‌تواند از پیام‌های مرتبط یاد بگیرد.");
+            refreshTargetGroups();
         } else if (state instanceof TdApi.AuthorizationStateLoggingOut
                 || state instanceof TdApi.AuthorizationStateClosing) {
             currentStep = AuthStep.LOGGING_OUT;
@@ -1241,7 +1374,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.11.0";
+        request.applicationVersion = "1.12.0";
 
         sendAuth(request);
     }

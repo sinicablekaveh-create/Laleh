@@ -38,6 +38,9 @@ public final class CentralCorePanel extends LinearLayout {
     private final EditText messageInput;
     private final Spinner scheduleSpinner;
     private final LinearLayout targetContainer;
+    private final Button chooseTargetsButton;
+    private final TextView targetLoadStatusText;
+    private boolean showingPhotoTargets;
     private final TextView statusText;
     private final TextView summaryText;
     private final TextView groupsText;
@@ -120,7 +123,7 @@ public final class CentralCorePanel extends LinearLayout {
         addView(label("۱) ارسال زمان‌بندی‌شده پیام", 19, true), full());
 
         TextView safeNote = label(
-                "گروه‌های هدف زمان‌بندی‌شده فقط گروه‌هایی هستند که حساب در آن‌ها مدیر یا مالک است و خودت انتخابشان می‌کنی.",
+                "فقط گروه‌هایی که حساب در آن‌ها عضو است نمایش داده می‌شوند. عضو عادی هم با داشتن اجازهٔ ارسال می‌تواند گروه هدف را انتخاب کند.",
                 12,
                 false
         );
@@ -182,11 +185,31 @@ public final class CentralCorePanel extends LinearLayout {
 
         addView(label("گروه‌های هدف", 14, true), full());
 
+        chooseTargetsButton = new Button(context);
+        chooseTargetsButton.setText("انتخاب گروه هدف");
+        chooseTargetsButton.setAllCaps(false);
+        addView(chooseTargetsButton, full());
+
+        targetLoadStatusText = label("", 12, false);
+        addView(targetLoadStatusText, full());
+
         targetContainer = new LinearLayout(context);
         targetContainer.setOrientation(VERTICAL);
         targetContainer.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         targetContainer.setPadding(dp(6), dp(4), dp(6), dp(4));
+        targetContainer.setVisibility(View.GONE);
         addView(targetContainer, full());
+
+        chooseTargetsButton.setOnClickListener(v -> {
+            boolean open = targetContainer.getVisibility() != View.VISIBLE;
+            targetContainer.setVisibility(open ? View.VISIBLE : View.GONE);
+            chooseTargetsButton.setText(open ? "بستن فهرست گروه‌های هدف" : "انتخاب گروه هدف");
+            if (open) {
+                refreshTargets();
+                telegram.refreshTargetGroups();
+                refreshTargetLoadStatus();
+            }
+        });
 
         LinearLayout controls = new LinearLayout(context);
         controls.setOrientation(HORIZONTAL);
@@ -367,28 +390,34 @@ public final class CentralCorePanel extends LinearLayout {
         CheckBox check = targetChecks.get(chatId);
         if (check == null) {
             check = new CheckBox(getContext());
-            final long targetId = chatId;
-            check.setOnCheckedChangeListener(
-                    (buttonView, isChecked) -> core.setGroupSelected(targetId, isChecked)
-            );
             targetChecks.put(chatId, check);
             targetContainer.addView(check, full());
         }
+        updateTargetView(group, check);
+        refreshSummary();
+    }
 
+    private void updateTargetView(TelegramClientManager.GroupInfo group, CheckBox check) {
+        long chatId = group.id;
+        boolean allowed = showingPhotoTargets ? group.canSendPhotos : group.canSend;
+        check.setOnCheckedChangeListener(null);
         check.setText(
                 group.title + " — "
                         + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
                         + " — " + group.status
         );
-        check.setEnabled(group.canSend);
-        check.setChecked(group.canSend && core.isGroupSelected(group.id));
+        check.setEnabled(allowed);
+        check.setChecked(core.isGroupSelected(group.id));
+        check.setOnCheckedChangeListener((buttonView, isChecked) -> core.setGroupSelected(chatId, isChecked));
 
         TextView note = targetNotes.remove(chatId);
         if (note != null) targetContainer.removeView(note);
 
-        if (!group.canSend) {
+        if (!allowed) {
             note = label(
-                    "این گروه در حساب موجود است، اما ارسال زمان‌بندی‌شده فقط برای گروه‌هایی فعال است که حساب مدیر یا مالک آن‌هاست.",
+                    showingPhotoTargets
+                            ? "عضو این گروه هستی، اما اجازهٔ ارسال عکس نداری. برای ارسال متن، عکس انتخاب‌شده را حذف کن."
+                            : "عضو این گروه هستی، اما اجازهٔ ارسال متن نداری؛ ارسال برای این گروه غیرفعال است.",
                     11,
                     false
             );
@@ -398,7 +427,20 @@ public final class CentralCorePanel extends LinearLayout {
             targetContainer.addView(note, checkIndex + 1, full());
         }
 
+    }
+
+    public void onTargetGroupsLoadChanged() {
+        refreshTargets();
         refreshSummary();
+    }
+
+    private void refreshTargetLoadStatus() {
+        targetLoadStatusText.setText(telegram.getTargetGroupsLoadMessage());
+        if (targetEmptyText != null) {
+            targetEmptyText.setText(telegram.isLoadingTargetGroups()
+                    ? "در حال دریافت گروه‌های عضو حساب..."
+                    : "هنوز گروه عضوی در فهرست حساب پیدا نشده است.");
+        }
     }
 
     public void onFoundGroupsChanged() {
@@ -454,7 +496,12 @@ public final class CentralCorePanel extends LinearLayout {
     private void refreshPhotoStatus() {
         if (photoStatusText == null) return;
 
-        if (core.hasPhoto()) {
+        boolean withPhoto = core.hasPhoto();
+        if (showingPhotoTargets != withPhoto) {
+            showingPhotoTargets = withPhoto;
+            refreshTargets();
+        }
+        if (withPhoto) {
             photoStatusText.setText("عکس انتخاب شده ✅ — همراه متن به گروه هدف ارسال می‌شود.");
         } else {
             photoStatusText.setText("بدون عکس — فقط متن ارسال می‌شود.");
@@ -507,7 +554,8 @@ public final class CentralCorePanel extends LinearLayout {
                         + " | صف هوشمند: " + core.queueSize() + " واژه"
         );
 
-        startButton.setEnabled(!core.isEnabled());
+        startButton.setText(core.isEnabled() ? "ثبت تنظیمات" : "START");
+        startButton.setEnabled(true);
         stopButton.setEnabled(core.isEnabled());
     }
 
@@ -520,42 +568,25 @@ public final class CentralCorePanel extends LinearLayout {
         List<TelegramClientManager.GroupInfo> groups = telegram.getTargetGroups();
         if (groups.isEmpty()) {
             showTargetEmptyMessage();
+            refreshTargetLoadStatus();
             return;
         }
 
         for (TelegramClientManager.GroupInfo group : groups) {
             CheckBox check = new CheckBox(getContext());
-            final long targetId = group.id;
-            check.setOnCheckedChangeListener(
-                    (buttonView, isChecked) -> core.setGroupSelected(targetId, isChecked)
-            );
-            check.setText(
-                    group.title + " — "
-                            + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
-                            + " — " + group.status
-            );
-            check.setEnabled(group.canSend);
-            check.setChecked(group.canSend && core.isGroupSelected(group.id));
             targetChecks.put(group.id, check);
             targetContainer.addView(check, full());
-
-            if (!group.canSend) {
-                TextView note = label(
-                        "این گروه عضو حساب است؛ انتخاب برای ارسال زمان‌بندی‌شده فقط وقتی فعال می‌شود که حساب مدیر یا مالک گروه باشد.",
-                        11,
-                        false
-                );
-                note.setPadding(dp(24), 0, dp(24), dp(3));
-                targetNotes.put(group.id, note);
-                targetContainer.addView(note, full());
-            }
+            updateTargetView(group, check);
         }
+        refreshTargetLoadStatus();
     }
 
     private void showTargetEmptyMessage() {
         if (targetEmptyText != null) return;
         targetEmptyText = label(
-                "هنوز گروهی از حساب تلگرام دریافت نشده است.",
+                telegram.isLoadingTargetGroups()
+                        ? "در حال دریافت گروه‌های عضو حساب..."
+                        : "هنوز گروه عضوی در فهرست حساب پیدا نشده است.",
                 13,
                 false
         );
