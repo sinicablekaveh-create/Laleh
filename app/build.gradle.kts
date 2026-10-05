@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
 }
@@ -42,7 +44,7 @@ val generateAppLogo by tasks.registering {
         }
         val output = file("src/main/res/drawable/app_logo.jpg")
         output.parentFile.mkdirs()
-        output.writeBytes(java.util.Base64.getDecoder().decode(encoded))
+        output.writeBytes(Base64.getDecoder().decode(encoded))
     }
 }
 
