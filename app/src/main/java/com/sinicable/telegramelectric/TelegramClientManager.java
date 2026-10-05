@@ -422,9 +422,18 @@ public final class TelegramClientManager {
 
         if (object instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat) object).chat;
-            if (chat != null && (chat.type instanceof TdApi.ChatTypeBasicGroup
-                    || chat.type instanceof TdApi.ChatTypeSupergroup)) {
-                foundGroups.put(chat.id, new RecipientInfo(chat.id, chat.title));
+            if (chat != null && isGroupChat(chat)) {
+                GroupInfo oldInfo = foundGroups.get(chat.id);
+                GroupInfo info = new GroupInfo(
+                        chat.id,
+                        chat.title,
+                        oldInfo == null ? "" : oldInfo.link,
+                        oldInfo == null ? 0 : oldInfo.memberCount,
+                        oldInfo == null ? "موجود در حساب تلگرام" : oldInfo.status,
+                        oldInfo != null && oldInfo.canSend
+                );
+                foundGroups.put(chat.id, info);
+                persistDiscovery();
                 listener.onRecipientsChanged();
             }
             return;
@@ -432,9 +441,17 @@ public final class TelegramClientManager {
 
         if (object instanceof TdApi.UpdateChatTitle) {
             TdApi.UpdateChatTitle update = (TdApi.UpdateChatTitle) object;
-            RecipientInfo existing = foundGroups.get(update.chatId);
+            GroupInfo existing = foundGroups.get(update.chatId);
             if (existing != null) {
-                foundGroups.put(update.chatId, new RecipientInfo(update.chatId, update.title));
+                foundGroups.put(update.chatId, new GroupInfo(
+                        existing.id,
+                        update.title,
+                        existing.link,
+                        existing.memberCount,
+                        existing.status,
+                        existing.canSend
+                ));
+                persistDiscovery();
                 listener.onRecipientsChanged();
             }
             return;
@@ -443,10 +460,7 @@ public final class TelegramClientManager {
         if (object instanceof TdApi.UpdateUser) {
             TdApi.User user = ((TdApi.UpdateUser) object).user;
             if (user != null && isContactUser(user)) {
-                String name = ((user.firstName == null ? "" : user.firstName) + " "
-                        + (user.lastName == null ? "" : user.lastName)).trim();
-                telegramContacts.put(user.id, new RecipientInfo(user.id, name));
-                listener.onRecipientsChanged();
+                storeContact(user);
             }
             return;
         }
@@ -468,6 +482,39 @@ public final class TelegramClientManager {
     }
 
 
+
+    private static boolean isGroupChat(TdApi.Chat chat) {
+        if (chat == null) return false;
+        if (chat.type instanceof TdApi.ChatTypeBasicGroup) return true;
+        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+            try {
+                Field field = chat.type.getClass().getField("isChannel");
+                Object value = field.get(chat.type);
+                return !(value instanceof Boolean) || !((Boolean) value);
+            } catch (Throwable ignored) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean storeContact(TdApi.User user) {
+        String name = ((user.firstName == null ? "" : user.firstName) + " "
+                + (user.lastName == null ? "" : user.lastName)).trim();
+        String phone = "";
+        try {
+            Field field = user.getClass().getField("phoneNumber");
+            Object value = field.get(user);
+            if (value instanceof String) phone = (String) value;
+        } catch (Throwable ignored) {
+        }
+
+        boolean isNew = !telegramContacts.containsKey(user.id);
+        telegramContacts.put(user.id, new ContactInfo(user.id, name, phone));
+        persistDiscovery();
+        listener.onRecipientsChanged();
+        return isNew;
+    }
 
     private static boolean isContactUser(TdApi.User user) {
         try {
