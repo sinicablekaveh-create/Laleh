@@ -211,7 +211,7 @@ public final class TelegramClientManager {
         });
     }
 
-    public void searchPublicGroups(String query, DiscoveryCallback callback) {
+    public void searchKnownGroups(String query, DiscoveryCallback callback) {
         Client local = client;
         String clean = query == null ? "" : query.trim();
         if (local == null || currentStep != AuthStep.READY) {
@@ -223,17 +223,7 @@ public final class TelegramClientManager {
             return;
         }
 
-        final TdApi.Function request;
-        try {
-            request = buildSearchPublicChatsFunction(clean);
-        } catch (Throwable error) {
-            if (callback != null) {
-                callback.onResult(false, 0, 0, "ساخت جستجو ناموفق بود: " + safeMessage(error));
-            }
-            return;
-        }
-
-        local.send(request, result -> {
+        local.send(new TdApi.SearchChats(clean, 50), result -> {
             if (result instanceof TdApi.Error) {
                 TdApi.Error error = (TdApi.Error) result;
                 if (callback != null) {
@@ -242,9 +232,14 @@ public final class TelegramClientManager {
                 return;
             }
 
-            long[] ids = extractLongArrayField(result, "chatIds");
-            if (ids.length == 0) {
-                if (callback != null) callback.onResult(true, 0, 0, "گروهی پیدا نشد.");
+            if (!(result instanceof TdApi.Chats)) {
+                if (callback != null) callback.onResult(true, 0, 0, "گروهی در چت‌های حساب پیدا نشد.");
+                return;
+            }
+
+            long[] ids = ((TdApi.Chats) result).chatIds;
+            if (ids == null || ids.length == 0) {
+                if (callback != null) callback.onResult(true, 0, 0, "گروهی در چت‌های حساب پیدا نشد.");
                 return;
             }
 
@@ -255,18 +250,20 @@ public final class TelegramClientManager {
             for (long chatId : ids) {
                 local.send(new TdApi.GetChat(chatId), chatResult -> {
                     if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
+                        TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
-                        enrichAndStoreGroup((TdApi.Chat) chatResult, isNew -> {
-                            if (isNew) newItems.incrementAndGet();
-                            if (remaining.decrementAndGet() == 0 && callback != null) {
-                                callback.onResult(true, newItems.get(), validItems.get(), "جستجو کامل شد.");
-                            }
-                        });
-                        return;
+                        boolean isNew = !foundGroups.containsKey(chat.id);
+                        captureKnownGroup(chat);
+                        if (isNew) newItems.incrementAndGet();
                     }
 
                     if (remaining.decrementAndGet() == 0 && callback != null) {
-                        callback.onResult(true, newItems.get(), validItems.get(), "جستجو کامل شد.");
+                        callback.onResult(
+                                true,
+                                newItems.get(),
+                                validItems.get(),
+                                "جستجوی گروه‌های موجود در حساب کامل شد."
+                        );
                     }
                 });
             }
