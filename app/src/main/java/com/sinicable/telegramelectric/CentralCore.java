@@ -279,9 +279,9 @@ public final class CentralCore {
         }
 
         int score = smartQueue.scoreFor(query);
-        listener.onStatus("هسته مرکزی: جستجوی گروه‌های موجود با «" + query + "» — امتیاز " + score);
+        listener.onStatus("هسته مرکزی: جستجوی گروه‌های عمومی با «" + query + "» — امتیاز " + score);
 
-        telegram.searchKnownGroups(query, (success, newItems, totalItems, resultMessage) -> {
+        telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> {
             synchronized (CentralCore.this) {
                 searchInFlight = false;
             }
