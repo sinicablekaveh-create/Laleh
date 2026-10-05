@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "codex/stability-1.11" ]
+    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12" ]
     paths:
       - "app/**"
       - "*.gradle.kts"

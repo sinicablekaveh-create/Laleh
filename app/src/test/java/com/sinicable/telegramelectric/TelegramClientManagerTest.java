@@ -14,6 +14,11 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.Assert.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -74,10 +79,10 @@ public class TelegramClientManagerTest {
     }
 
     @Test
-    public void ordinaryMemberIsVisibleWithSendingDisabled() throws Exception {
+    public void ordinaryMemberCanSendWhenGroupAllowsText() throws Exception {
         inspect(chat(), metadata(new TdApi.ChatMemberStatusMember()));
         assertNotNull(manager.getTargetGroup(-1005L));
-        assertFalse(manager.getTargetGroup(-1005L).canSend);
+        assertTrue(manager.getTargetGroup(-1005L).canSend);
     }
 
     @Test
@@ -100,12 +105,122 @@ public class TelegramClientManagerTest {
     }
 
     @Test
-    public void adminDemotionDisablesScheduledSending() throws Exception {
+    public void adminDemotionKeepsSendingWhenMemberHasPermission() throws Exception {
         TdApi.Chat chat = chat();
         update(new TdApi.UpdateNewChat(chat));
         inspect(chat, metadata(new TdApi.ChatMemberStatusAdministrator()));
         update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+        assertTrue(manager.getTargetGroup(chat.id).canSend);
+    }
+
+    @Test
+    public void mutedMemberRemainsVisibleButCannotSend() throws Exception {
+        TdApi.Chat chat = chat();
+        chat.permissions.canSendBasicMessages = false;
+        inspect(chat, metadata(new TdApi.ChatMemberStatusMember()));
+        assertNotNull(manager.getTargetGroup(chat.id));
         assertFalse(manager.getTargetGroup(chat.id).canSend);
+    }
+
+    @Test
+    public void restrictedMemberNeedsPersonalPermissionAsWellAsGroupPermission() throws Exception {
+        TdApi.ChatMemberStatusRestricted status = new TdApi.ChatMemberStatusRestricted();
+        status.isMember = true;
+        status.permissions = new TdApi.ChatPermissions();
+        inspect(chat(), metadata(status));
+        assertFalse(manager.getTargetGroup(-1005L).canSend);
+        status.permissions.canSendBasicMessages = true;
+        inspect(chat(), metadata(status));
+        assertTrue(manager.getTargetGroup(-1005L).canSend);
+    }
+
+    @Test
+    public void changingChatPermissionsImmediatelyDisablesAndEnablesMemberSending() throws Exception {
+        TdApi.Chat chat = chat();
+        update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+        update(new TdApi.UpdateNewChat(chat));
+        assertTrue(manager.getTargetGroup(chat.id).canSend);
+        TdApi.UpdateChatPermissions change = new TdApi.UpdateChatPermissions();
+        change.chatId = chat.id;
+        change.permissions = new TdApi.ChatPermissions();
+        update(change);
+        assertFalse(manager.getTargetGroup(chat.id).canSend);
+        change.permissions.canSendBasicMessages = true;
+        update(change);
+        assertTrue(manager.getTargetGroup(chat.id).canSend);
+    }
+
+    @Test
+    public void memberCannotSendPhotoWhenPhotoPermissionIsDisabled() throws Exception {
+        TdApi.Chat chat = chat();
+        chat.permissions.canSendPhotos = false;
+        update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+        update(new TdApi.UpdateNewChat(chat));
+        List<TdApi.Function> requests = new ArrayList<>();
+        Client transport = mock(Client.class);
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            ((Client.ResultHandler) call.getArgument(1)).onResult(new TdApi.Message());
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        setField("client", transport);
+        setField("currentStep", TelegramClientManager.AuthStep.READY);
+        Path photo = Files.createTempFile("telegram-test-photo", ".jpg");
+        try {
+            Files.write(photo, new byte[] {1, 2, 3, 4});
+            boolean[] success = {true};
+            manager.sendPhotoToChat(chat.id, photo.toString(), "برق", (ok, message) -> success[0] = ok);
+            assertFalse(success[0]);
+            assertTrue(requests.isEmpty());
+        } finally {
+            Files.deleteIfExists(photo);
+        }
+    }
+
+    @Test
+    public void authorizationLoadsEveryPageOfMainAndArchiveWithoutGetChatRequests() throws Exception {
+        Client transport = mock(Client.class);
+        ConcurrentHashMap<String, Integer> pages = new ConcurrentHashMap<>();
+        List<String> requests = java.util.Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch finished = new CountDownLatch(2);
+        doAnswer(call -> {
+            TdApi.Function request = call.getArgument(0);
+            requests.add(request.getClass().getSimpleName());
+            Client.ResultHandler handler = call.getArgument(1);
+            if (request instanceof TdApi.LoadChats) {
+                TdApi.LoadChats load = (TdApi.LoadChats) request;
+                String list = load.chatList instanceof TdApi.ChatListArchive ? "archive" : "main";
+                int page = pages.merge(list, 1, Integer::sum);
+                if (page == 1) {
+                    long groupId = list.equals("archive") ? 6L : 5L;
+                    TdApi.Chat chat = chat();
+                    chat.id = -1000L - groupId;
+                    ((TdApi.ChatTypeSupergroup) chat.type).supergroupId = groupId;
+                    TdApi.Supergroup meta = metadata(new TdApi.ChatMemberStatusMember());
+                    meta.id = groupId;
+                    update(new TdApi.UpdateSupergroup(meta));
+                    update(new TdApi.UpdateNewChat(chat));
+                    handler.onResult(new TdApi.Ok());
+                } else {
+                    handler.onResult(new TdApi.Error(404, "Not Found"));
+                    finished.countDown();
+                }
+            } else {
+                handler.onResult(new TdApi.Ok());
+            }
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        setField("client", transport);
+        TdApi.UpdateAuthorizationState ready = new TdApi.UpdateAuthorizationState();
+        ready.authorizationState = new TdApi.AuthorizationStateReady();
+        update(ready);
+        assertTrue("Main and archive chat lists were not loaded", finished.await(3, TimeUnit.SECONDS));
+        assertEquals(Integer.valueOf(2), pages.get("main"));
+        assertEquals(Integer.valueOf(2), pages.get("archive"));
+        assertEquals(2, manager.getTargetGroups().size());
+        assertTrue(manager.getTargetGroup(-1006L).canSend);
+        assertTrue(manager.getFoundGroups().isEmpty());
+        assertFalse(requests.contains("GetChat"));
     }
 
     @Test
@@ -202,6 +317,9 @@ public class TelegramClientManagerTest {
         type.supergroupId = 5L;
         type.isChannel = false;
         chat.type = type;
+        chat.permissions = new TdApi.ChatPermissions();
+        chat.permissions.canSendBasicMessages = true;
+        chat.permissions.canSendPhotos = true;
         return chat;
     }
 
