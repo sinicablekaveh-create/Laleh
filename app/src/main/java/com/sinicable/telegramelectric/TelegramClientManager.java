@@ -1,19 +1,24 @@
 package com.sinicable.telegramelectric;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Build;
 
 import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class TelegramClientManager {
     public enum AuthStep {
@@ -30,26 +35,51 @@ public final class TelegramClientManager {
         void onMessageText(String text);
     }
 
+    private static final String DISCOVERY_PREFS = "telegram_discovery";
+    private static final String KEY_GROUPS_JSON = "groups_json";
+    private static final String KEY_CONTACTS_JSON = "contacts_json";
+
     private final Context context;
     private final Listener listener;
+    private final SharedPreferences discoveryPrefs;
     private volatile AuthStep currentStep = AuthStep.IDLE;
     private Client client;
     private int apiId;
     private String apiHash = "";
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
-    private final Map<Long, RecipientInfo> foundGroups = new ConcurrentHashMap<>();
-    private final Map<Long, RecipientInfo> telegramContacts = new ConcurrentHashMap<>();
+    private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
+    private final Map<Long, ContactInfo> telegramContacts = new ConcurrentHashMap<>();
     private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
     private volatile boolean connectionReady = false;
 
 
-    public static final class RecipientInfo {
+    public static final class GroupInfo {
         public final long id;
         public final String title;
+        public final String link;
+        public final int memberCount;
+        public final String status;
+        public final boolean canSend;
 
-        RecipientInfo(long id, String title) {
+        GroupInfo(long id, String title, String link, int memberCount, String status, boolean canSend) {
             this.id = id;
-            this.title = title == null || title.trim().isEmpty() ? String.valueOf(id) : title.trim();
+            this.title = cleanLabel(title, String.valueOf(id));
+            this.link = cleanLabel(link, "لینک عمومی در دسترس نیست");
+            this.memberCount = Math.max(0, memberCount);
+            this.status = cleanLabel(status, "وضعیت نامشخص");
+            this.canSend = canSend;
+        }
+    }
+
+    public static final class ContactInfo {
+        public final long id;
+        public final String name;
+        public final String phone;
+
+        ContactInfo(long id, String name, String phone) {
+            this.id = id;
+            this.name = cleanLabel(name, String.valueOf(id));
+            this.phone = cleanLabel(phone, "شماره مخفی/در دسترس نیست");
         }
     }
 
@@ -57,9 +87,15 @@ public final class TelegramClientManager {
         void onResult(boolean success, String message);
     }
 
+    public interface DiscoveryCallback {
+        void onResult(boolean success, int newItems, int totalItems, String message);
+    }
+
     public TelegramClientManager(Context context, Listener listener) {
         this.context = context.getApplicationContext();
         this.listener = listener;
+        this.discoveryPrefs = this.context.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE);
+        loadDiscovery();
     }
 
     public synchronized void start(int apiId, String apiHash) {
@@ -106,16 +142,20 @@ public final class TelegramClientManager {
         return currentStep == AuthStep.READY && connectionReady && client != null;
     }
 
-    public List<RecipientInfo> getFoundGroups() {
-        List<RecipientInfo> result = new ArrayList<>(foundGroups.values());
+    public List<GroupInfo> getFoundGroups() {
+        List<GroupInfo> result = new ArrayList<>(foundGroups.values());
         result.sort(Comparator.comparing(info -> info.title.toLowerCase()));
         return result;
     }
 
-    public List<RecipientInfo> getTelegramContacts() {
-        List<RecipientInfo> result = new ArrayList<>(telegramContacts.values());
-        result.sort(Comparator.comparing(info -> info.title.toLowerCase()));
+    public List<ContactInfo> getTelegramContacts() {
+        List<ContactInfo> result = new ArrayList<>(telegramContacts.values());
+        result.sort(Comparator.comparing(info -> info.name.toLowerCase()));
         return result;
+    }
+
+    public GroupInfo getGroup(long chatId) {
+        return foundGroups.get(chatId);
     }
 
     public void sendTextToChat(long chatId, String message, SendCallback callback) {
