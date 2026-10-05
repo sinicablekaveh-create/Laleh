@@ -402,28 +402,6 @@ public final class TelegramClientManager {
         );
     }
 
-    public void sendTextToUser(long userId, String message, SendCallback callback) {
-        Client local = client;
-        if (local == null || currentStep != AuthStep.READY) {
-            if (callback != null) callback.onResult(false, "تلگرام آماده ارسال نیست.");
-            return;
-        }
-
-        local.send(new TdApi.CreatePrivateChat(userId, false), result -> {
-            if (result instanceof TdApi.Error) {
-                TdApi.Error error = (TdApi.Error) result;
-                if (callback != null) callback.onResult(false, error.code + ": " + error.message);
-                return;
-            }
-
-            if (result instanceof TdApi.Chat) {
-                sendTextToChat(((TdApi.Chat) result).id, message, callback);
-            } else {
-                if (callback != null) callback.onResult(false, "چت خصوصی ساخته نشد.");
-            }
-        });
-    }
-
     public void discoverPublicGroupsForReview(String query, DiscoveryCallback callback) {
         Client local = client;
         String clean = query == null ? "" : query.trim();
@@ -1116,47 +1094,11 @@ public final class TelegramClientManager {
     private static boolean canSendFromStatus(Object status) {
         if (status == null) return false;
         String name = status.getClass().getSimpleName();
-
-        if (name.contains("Creator")
-                || name.contains("Administrator")
-                || name.contains("Member")) {
-            return true;
-        }
-
-        if (name.contains("Restricted")) {
-            Object permissions = readObjectField(status, "permissions");
-            Object basic = readObjectField(permissions, "canSendBasicMessages");
-            if (basic instanceof Boolean) return (Boolean) basic;
-
-            Object legacy = readObjectField(permissions, "canSendMessages");
-            if (legacy instanceof Boolean) return (Boolean) legacy;
-        }
-
-        return false;
+        return name.contains("Creator") || name.contains("Administrator");
     }
 
     private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
-        if (chat == null || status == null) return false;
-
-        String statusName = status.getClass().getSimpleName();
-        if (statusName.contains("Creator") || statusName.contains("Administrator")) {
-            return true;
-        }
-
-        if (statusName.contains("Restricted")) {
-            return canSendFromStatus(status);
-        }
-
-        Object permissions = readObjectField(chat, "permissions");
-        if (permissions == null) return true;
-
-        Object basic = readObjectField(permissions, "canSendBasicMessages");
-        if (basic instanceof Boolean) return (Boolean) basic;
-
-        Object legacy = readObjectField(permissions, "canSendMessages");
-        if (legacy instanceof Boolean) return (Boolean) legacy;
-
-        return true;
+        return canSendFromStatus(status);
     }
 
     private static String describeMemberStatus(Object status) {
