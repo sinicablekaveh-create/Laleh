@@ -866,20 +866,8 @@ public final class TelegramClientManager {
         }
     }
 
-    private void captureKnownGroup(TdApi.Chat chat, boolean discoveredBySearch) {
+    private void inspectTargetGroup(TdApi.Chat chat) {
         if (chat == null || !isGroupChat(chat)) return;
-
-        GroupInfo existing = foundGroups.get(chat.id);
-        GroupInfo base = new GroupInfo(
-                chat.id,
-                chat.title,
-                existing == null ? "" : existing.link,
-                existing == null ? 0 : existing.memberCount,
-                existing == null ? "موجود در حساب تلگرام" : existing.status,
-                existing != null && existing.canSend,
-                discoveredBySearch || (existing != null && existing.discoveredBySearch)
-        );
-        storeGroup(base);
 
         Client local = client;
         if (local == null) return;
@@ -888,43 +876,117 @@ public final class TelegramClientManager {
             long supergroupId = ((TdApi.ChatTypeSupergroup) chat.type).supergroupId;
             local.send(new TdApi.GetSupergroup(supergroupId), result -> {
                 if (result instanceof TdApi.Supergroup) {
-                    updateGroupFromMeta(chat, result);
+                    updateTargetFromMeta(chat, result);
                 }
             });
         } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
             long basicGroupId = ((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId;
             local.send(new TdApi.GetBasicGroup(basicGroupId), result -> {
                 if (result instanceof TdApi.BasicGroup) {
-                    updateGroupFromMeta(chat, result);
+                    updateTargetFromMeta(chat, result);
                 }
             });
         }
     }
 
-    private void updateGroupFromMeta(TdApi.Chat chat, Object meta) {
-        GroupInfo existing = foundGroups.get(chat.id);
-        int memberCount = readIntField(meta, "memberCount", existing == null ? 0 : existing.memberCount);
+    private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
         Object statusObject = readObjectField(meta, "status");
-        String status = describeMemberStatus(statusObject);
         boolean canSend = canSendFromStatus(statusObject);
 
+        if (!canSend) {
+            if (targetGroups.remove(chat.id) != null) {
+                listener.onTargetGroupChanged(chat.id);
+            }
+            return;
+        }
+
+        GroupInfo existing = targetGroups.get(chat.id);
+        int memberCount = readIntField(
+                meta,
+                "memberCount",
+                existing == null ? 0 : existing.memberCount
+        );
         String username = extractPublicUsername(meta);
         String link = username.isEmpty()
                 ? (existing == null ? "" : existing.link)
                 : "https://t.me/" + username;
 
-        storeGroup(new GroupInfo(
+        targetGroups.put(chat.id, new GroupInfo(
+                0,
+                chat.id,
+                chat.title,
+                link,
+                memberCount,
+                describeMemberStatus(statusObject),
+                true,
+                false
+        ));
+        listener.onTargetGroupChanged(chat.id);
+    }
+
+    private void captureSearchResult(TdApi.Chat chat) {
+        if (chat == null || !isGroupChat(chat)) return;
+
+        GroupInfo existing = foundGroups.get(chat.id);
+        storeFoundGroup(new GroupInfo(
+                existing == null ? 0 : existing.number,
+                chat.id,
+                chat.title,
+                existing == null ? "" : existing.link,
+                existing == null ? 0 : existing.memberCount,
+                existing == null ? "نتیجه جستجوی بانک کلمات" : existing.status,
+                false,
+                true
+        ));
+
+        Client local = client;
+        if (local == null) return;
+
+        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+            long supergroupId = ((TdApi.ChatTypeSupergroup) chat.type).supergroupId;
+            local.send(new TdApi.GetSupergroup(supergroupId), result -> {
+                if (result instanceof TdApi.Supergroup) {
+                    updateFoundFromMeta(chat, result);
+                }
+            });
+        } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
+            long basicGroupId = ((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId;
+            local.send(new TdApi.GetBasicGroup(basicGroupId), result -> {
+                if (result instanceof TdApi.BasicGroup) {
+                    updateFoundFromMeta(chat, result);
+                }
+            });
+        }
+    }
+
+    private void updateFoundFromMeta(TdApi.Chat chat, Object meta) {
+        GroupInfo existing = foundGroups.get(chat.id);
+        if (existing == null) return;
+
+        int memberCount = readIntField(meta, "memberCount", existing.memberCount);
+        Object statusObject = readObjectField(meta, "status");
+        String status = statusObject == null
+                ? existing.status
+                : describeMemberStatus(statusObject);
+
+        String username = extractPublicUsername(meta);
+        String link = username.isEmpty()
+                ? existing.link
+                : "https://t.me/" + username;
+
+        storeFoundGroup(new GroupInfo(
+                existing.number,
                 chat.id,
                 chat.title,
                 link,
                 memberCount,
                 status,
-                canSend,
-                existing != null && existing.discoveredBySearch
+                false,
+                true
         ));
     }
 
-    private synchronized boolean storeGroup(GroupInfo info) {
+    private synchronized boolean storeFoundGroup(GroupInfo info) {
         GroupInfo existing = foundGroups.get(info.id);
         boolean isNew = existing == null;
 
@@ -935,20 +997,77 @@ public final class TelegramClientManager {
             nextGroupNumber = Math.max(nextGroupNumber, number + 1);
         }
 
-        GroupInfo stored = new GroupInfo(
+        foundGroups.put(info.id, new GroupInfo(
                 number,
                 info.id,
                 info.title,
                 info.link,
                 info.memberCount,
                 info.status,
-                info.canSend,
-                info.discoveredBySearch || (existing != null && existing.discoveredBySearch)
-        );
+                false,
+                true
+        ));
 
-        foundGroups.put(info.id, stored);
-        persistDiscovery();
-        listener.onRecipientsChanged();
+        schedulePersistDiscovery();
+        listener.onFoundGroupsChanged();
+        return isNew;
+    }
+
+    private void observeDirectSender(TdApi.Message message) {
+        TdApi.Chat chat = chatCache.get(message.chatId);
+        if (chat == null || !(chat.type instanceof TdApi.ChatTypePrivate)) {
+            return;
+        }
+
+        Object sender = readObjectField(message, "senderId");
+        long userId = readLongField(sender, "userId", 0L);
+        if (userId == 0L) return;
+
+        directSenderIds.add(userId);
+        TdApi.User user = userCache.get(userId);
+        if (user != null) {
+            storeDirectUserIfPhoneVisible(user);
+        }
+    }
+
+    private boolean storeDirectUserIfPhoneVisible(TdApi.User user) {
+        String phone = "";
+        try {
+            Field field = user.getClass().getField("phoneNumber");
+            Object value = field.get(user);
+            if (value instanceof String) {
+                phone = ((String) value).trim();
+            }
+        } catch (Throwable ignored) {
+        }
+
+        if (phone.isEmpty()) {
+            return false;
+        }
+
+        String name = ((user.firstName == null ? "" : user.firstName) + " "
+                + (user.lastName == null ? "" : user.lastName)).trim();
+
+        ContactInfo existing = observedUsers.get(user.id);
+        boolean isNew = existing == null;
+
+        int number = existing == null ? 0 : existing.number;
+        if (number <= 0) {
+            number = nextContactNumber++;
+        } else {
+            nextContactNumber = Math.max(nextContactNumber, number + 1);
+        }
+
+        ContactInfo updated = new ContactInfo(number, user.id, name, phone);
+        if (existing != null
+                && existing.name.equals(updated.name)
+                && existing.phone.equals(updated.phone)) {
+            return false;
+        }
+
+        observedUsers.put(user.id, updated);
+        schedulePersistDiscovery();
+        listener.onObservedUsersChanged();
         return isNew;
     }
 
@@ -964,6 +1083,11 @@ public final class TelegramClientManager {
     private static int readIntField(Object source, String fieldName, int fallback) {
         Object value = readObjectField(source, fieldName);
         return value instanceof Number ? ((Number) value).intValue() : fallback;
+    }
+
+    private static long readLongField(Object source, String fieldName, long fallback) {
+        Object value = readObjectField(source, fieldName);
+        return value instanceof Number ? ((Number) value).longValue() : fallback;
     }
 
     private static String extractPublicUsername(Object source) {
@@ -1035,43 +1159,6 @@ public final class TelegramClientManager {
             }
         }
         return false;
-    }
-
-    private boolean storeContact(TdApi.User user) {
-        String name = ((user.firstName == null ? "" : user.firstName) + " "
-                + (user.lastName == null ? "" : user.lastName)).trim();
-        String phone = "";
-        try {
-            Field field = user.getClass().getField("phoneNumber");
-            Object value = field.get(user);
-            if (value instanceof String) phone = (String) value;
-        } catch (Throwable ignored) {
-        }
-
-        ContactInfo existing = telegramContacts.get(user.id);
-        boolean isNew = existing == null;
-
-        int number = existing == null ? 0 : existing.number;
-        if (number <= 0) {
-            number = nextContactNumber++;
-        } else {
-            nextContactNumber = Math.max(nextContactNumber, number + 1);
-        }
-
-        telegramContacts.put(user.id, new ContactInfo(number, user.id, name, phone));
-        persistDiscovery();
-        listener.onRecipientsChanged();
-        return isNew;
-    }
-
-    private static boolean isContactUser(TdApi.User user) {
-        try {
-            Field field = user.getClass().getField("isContact");
-            Object value = field.get(user);
-            return value instanceof Boolean && (Boolean) value;
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     private void handleConnectionState(TdApi.ConnectionState state) {
