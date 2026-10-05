@@ -362,11 +362,23 @@ public final class CentralCorePanel extends LinearLayout {
                         + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
                         + " — " + group.status
         );
-        check.setEnabled(true);
-        check.setChecked(core.isGroupSelected(group.id));
+        check.setEnabled(group.canSend);
+        check.setChecked(group.canSend && core.isGroupSelected(group.id));
 
         TextView note = targetNotes.remove(chatId);
         if (note != null) targetContainer.removeView(note);
+
+        if (!group.canSend) {
+            note = label(
+                    "این گروه در حساب موجود است، اما ارسال زمان‌بندی‌شده فقط برای گروه‌هایی فعال است که حساب مدیر یا مالک آن‌هاست.",
+                    11,
+                    false
+            );
+            note.setPadding(dp(24), 0, dp(24), dp(3));
+            targetNotes.put(chatId, note);
+            int checkIndex = targetContainer.indexOfChild(check);
+            targetContainer.addView(note, checkIndex + 1, full());
+        }
 
         refreshSummary();
     }
@@ -485,17 +497,28 @@ public final class CentralCorePanel extends LinearLayout {
                             + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
                             + " — " + group.status
             );
-            check.setEnabled(true);
-            check.setChecked(core.isGroupSelected(group.id));
+            check.setEnabled(group.canSend);
+            check.setChecked(group.canSend && core.isGroupSelected(group.id));
             targetChecks.put(group.id, check);
             targetContainer.addView(check, full());
+
+            if (!group.canSend) {
+                TextView note = label(
+                        "این گروه عضو حساب است؛ انتخاب برای ارسال زمان‌بندی‌شده فقط وقتی فعال می‌شود که حساب مدیر یا مالک گروه باشد.",
+                        11,
+                        false
+                );
+                note.setPadding(dp(24), 0, dp(24), dp(3));
+                targetNotes.put(group.id, note);
+                targetContainer.addView(note, full());
+            }
         }
     }
 
     private void showTargetEmptyMessage() {
         if (targetEmptyText != null) return;
         targetEmptyText = label(
-                "هنوز گروه قابل ارسال از حساب تلگرام دریافت نشده است.",
+                "هنوز گروهی از حساب تلگرام دریافت نشده است.",
                 13,
                 false
         );
