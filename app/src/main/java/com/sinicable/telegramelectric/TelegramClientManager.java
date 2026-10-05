@@ -634,7 +634,7 @@ public final class TelegramClientManager {
     private static boolean canSendFromStatus(Object status) {
         if (status == null) return false;
         String name = status.getClass().getSimpleName();
-        return name.contains("Creator") || name.contains("Administrator") || name.contains("Member");
+        return name.contains("Creator") || name.contains("Administrator");
     }
 
     private static String describeMemberStatus(Object status) {
