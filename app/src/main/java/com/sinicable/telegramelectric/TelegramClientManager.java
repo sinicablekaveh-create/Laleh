@@ -164,34 +164,80 @@ public final class TelegramClientManager {
         }
     }
 
-    public synchronized void start(int apiId, String apiHash) {
+    public void start(int apiId, String apiHash) {
         if (apiId <= 0 || apiHash == null || apiHash.trim().isEmpty()) {
             listener.onError("API ID و API Hash معتبر وارد کنید.");
             return;
         }
 
-        close();
-        this.apiId = apiId;
-        this.apiHash = apiHash.trim();
+        if (!starting.compareAndSet(false, true)) {
+            listener.onError("راه‌اندازی تلگرام در حال انجام است.");
+            return;
+        }
 
-        try {
-            System.loadLibrary("tdjni");
-            Client.execute(new TdApi.SetLogVerbosityLevel(1));
-            client = Client.create(
-                    this::onUpdate,
-                    error -> listener.onError("خطای TDLib: " + safeMessage(error)),
-                    error -> listener.onError("خطای TDLib: " + safeMessage(error))
-            );
+        final int requestedApiId = apiId;
+        final String requestedApiHash = apiHash.trim();
+        currentStep = AuthStep.WAIT_PARAMETERS;
+        listener.onAuthStep(currentStep, "در حال راه‌اندازی اتصال تلگرام...");
 
-            ProxyLinkParser.ProxyConfig queued = pendingProxy;
-            if (queued != null) {
-                applyProxy(queued);
+        runtimeExecutor.execute(() -> {
+            try {
+                closeExistingClientForRestart();
+
+                synchronized (TelegramClientManager.this) {
+                    TelegramClientManager.this.apiId = requestedApiId;
+                    TelegramClientManager.this.apiHash = requestedApiHash;
+                }
+
+                ensureTdjniLoaded();
+                Client.execute(new TdApi.SetLogVerbosityLevel(1));
+
+                Client created = Client.create(
+                        this::onUpdate,
+                        error -> listener.onError("خطای TDLib: " + safeMessage(error)),
+                        error -> listener.onError("خطای TDLib: " + safeMessage(error))
+                );
+
+                synchronized (TelegramClientManager.this) {
+                    client = created;
+                }
+
+                ProxyLinkParser.ProxyConfig queued = pendingProxy;
+                if (queued != null) {
+                    applyProxy(queued);
+                }
+            } catch (Throwable error) {
+                synchronized (TelegramClientManager.this) {
+                    client = null;
+                }
+                currentStep = AuthStep.IDLE;
+                listener.onError("راه‌اندازی TDLib ناموفق بود: " + safeMessage(error));
+            } finally {
+                starting.set(false);
             }
+        });
+    }
 
-            listener.onAuthStep(AuthStep.WAIT_PARAMETERS, "در حال راه‌اندازی اتصال تلگرام...");
-        } catch (Throwable error) {
-            client = null;
-            listener.onError("راه‌اندازی TDLib ناموفق بود: " + safeMessage(error));
+    private static void ensureTdjniLoaded() {
+        if (tdjniLoaded) return;
+
+        synchronized (TDJNI_LOCK) {
+            if (tdjniLoaded) return;
+            System.loadLibrary("tdjni");
+            tdjniLoaded = true;
+        }
+    }
+
+    private synchronized void closeExistingClientForRestart() {
+        Client local = client;
+        client = null;
+        connectionReady = false;
+
+        if (local != null) {
+            try {
+                local.send(new TdApi.Close(), result -> { });
+            } catch (Throwable ignored) {
+            }
         }
     }
 
