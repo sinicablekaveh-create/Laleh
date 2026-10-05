@@ -8,6 +8,8 @@
 
     <application
         android:allowBackup="false"
+        android:icon="@drawable/app_logo"
+        android:roundIcon="@drawable/app_logo"
         android:label="Telegram Electric"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
