@@ -542,6 +542,124 @@ public final class TelegramClientManager {
 
 
 
+    private void captureKnownGroup(TdApi.Chat chat) {
+        if (chat == null || !isGroupChat(chat)) return;
+
+        GroupInfo existing = foundGroups.get(chat.id);
+        GroupInfo base = new GroupInfo(
+                chat.id,
+                chat.title,
+                existing == null ? "" : existing.link,
+                existing == null ? 0 : existing.memberCount,
+                existing == null ? "موجود در حساب تلگرام" : existing.status,
+                existing != null && existing.canSend
+        );
+        storeGroup(base);
+
+        Client local = client;
+        if (local == null) return;
+
+        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
+            long supergroupId = ((TdApi.ChatTypeSupergroup) chat.type).supergroupId;
+            local.send(new TdApi.GetSupergroup(supergroupId), result -> {
+                if (result instanceof TdApi.Supergroup) {
+                    updateGroupFromMeta(chat, result);
+                }
+            });
+        } else if (chat.type instanceof TdApi.ChatTypeBasicGroup) {
+            long basicGroupId = ((TdApi.ChatTypeBasicGroup) chat.type).basicGroupId;
+            local.send(new TdApi.GetBasicGroup(basicGroupId), result -> {
+                if (result instanceof TdApi.BasicGroup) {
+                    updateGroupFromMeta(chat, result);
+                }
+            });
+        }
+    }
+
+    private void updateGroupFromMeta(TdApi.Chat chat, Object meta) {
+        GroupInfo existing = foundGroups.get(chat.id);
+        int memberCount = readIntField(meta, "memberCount", existing == null ? 0 : existing.memberCount);
+        Object statusObject = readObjectField(meta, "status");
+        String status = describeMemberStatus(statusObject);
+        boolean canSend = canSendFromStatus(statusObject);
+
+        String username = extractPublicUsername(meta);
+        String link = username.isEmpty()
+                ? (existing == null ? "" : existing.link)
+                : "https://t.me/" + username;
+
+        storeGroup(new GroupInfo(
+                chat.id,
+                chat.title,
+                link,
+                memberCount,
+                status,
+                canSend
+        ));
+    }
+
+    private boolean storeGroup(GroupInfo info) {
+        boolean isNew = !foundGroups.containsKey(info.id);
+        foundGroups.put(info.id, info);
+        persistDiscovery();
+        listener.onRecipientsChanged();
+        return isNew;
+    }
+
+    private static Object readObjectField(Object source, String fieldName) {
+        if (source == null) return null;
+        try {
+            return source.getClass().getField(fieldName).get(source);
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static int readIntField(Object source, String fieldName, int fallback) {
+        Object value = readObjectField(source, fieldName);
+        return value instanceof Number ? ((Number) value).intValue() : fallback;
+    }
+
+    private static String extractPublicUsername(Object source) {
+        Object direct = readObjectField(source, "username");
+        if (direct instanceof String && !((String) direct).trim().isEmpty()) {
+            return ((String) direct).trim().replaceFirst("^@", "");
+        }
+
+        Object usernames = readObjectField(source, "usernames");
+        if (usernames == null) return "";
+
+        Object active = readObjectField(usernames, "activeUsernames");
+        if (active != null && active.getClass().isArray() && Array.getLength(active) > 0) {
+            Object first = Array.get(active, 0);
+            if (first instanceof String) return ((String) first).trim().replaceFirst("^@", "");
+        }
+
+        Object editable = readObjectField(usernames, "editableUsername");
+        if (editable instanceof String) {
+            return ((String) editable).trim().replaceFirst("^@", "");
+        }
+        return "";
+    }
+
+    private static boolean canSendFromStatus(Object status) {
+        if (status == null) return false;
+        String name = status.getClass().getSimpleName();
+        return name.contains("Creator") || name.contains("Administrator") || name.contains("Member");
+    }
+
+    private static String describeMemberStatus(Object status) {
+        if (status == null) return "وضعیت عضویت نامشخص";
+        String name = status.getClass().getSimpleName();
+        if (name.contains("Creator")) return "مالک گروه ✅";
+        if (name.contains("Administrator")) return "مدیر گروه ✅";
+        if (name.contains("Member")) return "عضو گروه ✅";
+        if (name.contains("Restricted")) return "عضو محدود ⚠️";
+        if (name.contains("Banned")) return "مسدود ⛔";
+        if (name.contains("Left")) return "عضو نیست";
+        return "وضعیت نامشخص";
+    }
+
     private static boolean isGroupChat(TdApi.Chat chat) {
         if (chat == null) return false;
         if (chat.type instanceof TdApi.ChatTypeBasicGroup) return true;
