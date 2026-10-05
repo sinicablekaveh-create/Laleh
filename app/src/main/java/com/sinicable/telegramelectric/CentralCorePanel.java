@@ -17,6 +17,15 @@ import android.widget.TextView;
 import java.util.List;
 
 public final class CentralCorePanel extends LinearLayout {
+    public interface ExportRequestListener {
+        void onExportRequested(
+                ExportFileWriter.EntityType entityType,
+                ExportFileWriter.Format format,
+                int startNumber,
+                int endNumber
+        );
+    }
+
     private final TelegramClientManager telegram;
     private final CentralCore core;
 
@@ -29,6 +38,10 @@ public final class CentralCorePanel extends LinearLayout {
     private final TextView contactsText;
     private final Button startButton;
     private final Button stopButton;
+    private EditText exportStartInput;
+    private EditText exportEndInput;
+    private Spinner exportEntitySpinner;
+    private ExportRequestListener exportRequestListener;
 
     private final String[] scheduleLabels = {
             "هر ۵ دقیقه ۱ پیام",
@@ -143,6 +156,60 @@ public final class CentralCorePanel extends LinearLayout {
         contactsText.setTextIsSelectable(true);
         addView(contactsText, full());
 
+        addSpace(14);
+        addView(label("۴) دریافت فایل", 19, true), full());
+        addView(label(
+                "نوع داده و بازه شماره‌ها را انتخاب کن؛ مثلا مخاطب یا گروه شماره ۵۰۰ تا ۱۰۰۰.",
+                12,
+                false
+        ), full());
+
+        exportEntitySpinner = new Spinner(context);
+        ArrayAdapter<String> exportEntityAdapter = new ArrayAdapter<>(
+                context,
+                android.R.layout.simple_spinner_item,
+                new String[]{"مخاطبین", "گروه‌ها"}
+        );
+        exportEntityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        exportEntitySpinner.setAdapter(exportEntityAdapter);
+        addView(exportEntitySpinner, full());
+
+        LinearLayout exportRangeRow = new LinearLayout(context);
+        exportRangeRow.setOrientation(HORIZONTAL);
+        exportRangeRow.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        exportStartInput = new EditText(context);
+        exportStartInput.setHint("از شماره");
+        exportStartInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        exportStartInput.setSingleLine(true);
+        exportRangeRow.addView(exportStartInput, weight());
+
+        exportEndInput = new EditText(context);
+        exportEndInput.setHint("تا شماره");
+        exportEndInput.setInputType(InputType.TYPE_CLASS_NUMBER);
+        exportEndInput.setSingleLine(true);
+        exportRangeRow.addView(exportEndInput, weight());
+
+        addView(exportRangeRow, full());
+
+        LinearLayout exportButtons = new LinearLayout(context);
+        exportButtons.setOrientation(HORIZONTAL);
+        exportButtons.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        Button txtButton = new Button(context);
+        txtButton.setText("دریافت TXT");
+        txtButton.setAllCaps(false);
+        txtButton.setOnClickListener(v -> requestExport(ExportFileWriter.Format.TXT));
+        exportButtons.addView(txtButton, weight());
+
+        Button excelButton = new Button(context);
+        excelButton.setText("دریافت Excel");
+        excelButton.setAllCaps(false);
+        excelButton.setOnClickListener(v -> requestExport(ExportFileWriter.Format.XLSX));
+        exportButtons.addView(excelButton, weight());
+
+        addView(exportButtons, full());
+
         core = new CentralCore(
                 context,
                 telegram,
@@ -201,6 +268,46 @@ public final class CentralCorePanel extends LinearLayout {
         core.shutdown();
     }
 
+    public void setExportRequestListener(ExportRequestListener listener) {
+        this.exportRequestListener = listener;
+    }
+
+    private void requestExport(ExportFileWriter.Format format) {
+        if (exportRequestListener == null) {
+            statusText.setText("خروجی فایل هنوز آماده نیست.");
+            return;
+        }
+
+        int start;
+        int end;
+        try {
+            start = Integer.parseInt(exportStartInput.getText().toString().trim());
+            end = Integer.parseInt(exportEndInput.getText().toString().trim());
+        } catch (NumberFormatException error) {
+            statusText.setText("برای بازه، عدد معتبر وارد کن؛ مثلا 500 تا 1000.");
+            return;
+        }
+
+        if (start <= 0 || end <= 0 || end < start) {
+            statusText.setText("بازه نامعتبر است. شماره شروع باید کوچکتر یا مساوی شماره پایان باشد.");
+            return;
+        }
+
+        ExportFileWriter.EntityType entityType =
+                exportEntitySpinner.getSelectedItemPosition() == 0
+                        ? ExportFileWriter.EntityType.CONTACTS
+                        : ExportFileWriter.EntityType.GROUPS;
+
+        int count = ExportFileWriter.countInRange(telegram, entityType, start, end);
+        if (count <= 0) {
+            statusText.setText("در بازه " + start + " تا " + end + " رکوردی برای دریافت وجود ندارد.");
+            return;
+        }
+
+        statusText.setText("آماده دریافت " + count + " رکورد...");
+        exportRequestListener.onExportRequested(entityType, format, start, end);
+    }
+
     private void refreshSummary() {
         summaryText.setText(
                 "وضعیت: " + (core.isEnabled() ? "فعال ✅" : "متوقف")
@@ -230,7 +337,7 @@ public final class CentralCorePanel extends LinearLayout {
         for (TelegramClientManager.GroupInfo group : groups) {
             CheckBox check = new CheckBox(getContext());
             check.setText(
-                    group.title + " — "
+                    "#" + group.number + " — " + group.title + " — "
                             + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
             );
             check.setChecked(core.isGroupSelected(group.id));
@@ -263,6 +370,7 @@ public final class CentralCorePanel extends LinearLayout {
         int limit = Math.min(groups.size(), 200);
         for (int i = 0; i < limit; i++) {
             TelegramClientManager.GroupInfo group = groups.get(i);
+            out.append("شماره: ").append(group.number).append('\n');
             out.append("اسم: ").append(group.title).append('\n');
             out.append("لینک: ").append(group.link).append('\n');
             out.append("تعداد اعضا: ")
@@ -285,6 +393,7 @@ public final class CentralCorePanel extends LinearLayout {
         int limit = Math.min(contacts.size(), 300);
         for (int i = 0; i < limit; i++) {
             TelegramClientManager.ContactInfo contact = contacts.get(i);
+            out.append("شماره: ").append(contact.number).append('\n');
             out.append("اسم: ").append(contact.name).append('\n');
             out.append("شماره: ").append(contact.phone).append('\n');
             out.append("────────────").append('\n');
