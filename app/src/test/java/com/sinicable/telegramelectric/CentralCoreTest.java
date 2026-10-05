@@ -211,6 +211,50 @@ public class CentralCoreTest {
         assertTrue(delayed.get(0).delay >= 300_000L);
     }
 
+    @Test
+    public void recognizesAllTelegramRateLimitWaitFormats() {
+        assertEquals(300_000L, CentralCore.parseRetryWaitMillis("429: FLOOD_WAIT_300"));
+        assertEquals(45_000L, CentralCore.parseRetryWaitMillis("FLOOD_PREMIUM_WAIT_45"));
+        assertEquals(12_000L, CentralCore.parseRetryWaitMillis("SLOWMODE_WAIT_12"));
+        assertEquals(9_000L, CentralCore.parseRetryWaitMillis("Too Many Requests: retry after 9"));
+        assertEquals(0L, CentralCore.parseRetryWaitMillis("400: CHAT_WRITE_FORBIDDEN"));
+    }
+
+    @Test
+    public void premiumFloodWaitDelaysTheNextSendInsteadOfRetryingEarly() throws Exception {
+        joinedGroup(5L, new TdApi.ChatMemberStatusAdministrator());
+        core.setMessage("برق");
+        core.setGroupSelected(-1005L, true);
+        sendFailure = "FLOOD_PREMIUM_WAIT_45";
+
+        assertTrue(core.start());
+        runImmediateTasks();
+
+        assertEquals(1, sentMessages().size());
+        assertEquals(1, delayed.size());
+        assertEquals(45_000L, delayed.get(0).delay);
+    }
+
+    @Test
+    public void stoppingAndRestartingCannotBypassTelegramFloodWait() throws Exception {
+        joinedGroup(5L, new TdApi.ChatMemberStatusAdministrator());
+        core.setMessage("برق");
+        core.setGroupSelected(-1005L, true);
+        sendFailure = "FLOOD_WAIT_300";
+
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, sentMessages().size());
+
+        core.stop();
+        sendFailure = null;
+        assertTrue(core.start());
+        runImmediateTasks();
+
+        assertEquals(1, sentMessages().size());
+        assertTrue(delayed.stream().anyMatch(task -> task.delay > 299_000L));
+    }
+
     private void runImmediateTasks() {
         for (int i = 0; !immediate.isEmpty() && i < 20; i++) immediate.remove().run();
         assertTrue("Unexpected immediate task loop", immediate.isEmpty());
