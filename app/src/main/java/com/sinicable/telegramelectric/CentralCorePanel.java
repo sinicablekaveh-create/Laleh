@@ -40,7 +40,6 @@ public final class CentralCorePanel extends LinearLayout {
     private final TextView summaryText;
     private final TextView groupsText;
     private final TextView contactsText;
-    private TextView targetPageText;
     private final Button startButton;
     private final Button stopButton;
     private final TextView photoStatusText;
@@ -49,9 +48,6 @@ public final class CentralCorePanel extends LinearLayout {
     private EditText exportEndInput;
     private Spinner exportEntitySpinner;
     private ExportRequestListener exportRequestListener;
-    private final Runnable delayedRefresh = this::refreshAll;
-    private int targetPage = 0;
-    private static final int TARGET_PAGE_SIZE = 40;
 
     private final String[] scheduleLabels = {
             "هر ۵ دقیقه ۱ پیام",
@@ -171,40 +167,6 @@ public final class CentralCorePanel extends LinearLayout {
         targetContainer.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         targetContainer.setPadding(dp(6), dp(4), dp(6), dp(4));
         addView(targetContainer, full());
-
-        LinearLayout targetPager = new LinearLayout(context);
-        targetPager.setOrientation(HORIZONTAL);
-        targetPager.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-
-        Button targetNextButton = new Button(context);
-        targetNextButton.setText("بعدی");
-        targetNextButton.setAllCaps(false);
-        targetNextButton.setOnClickListener(v -> {
-            int size = telegram.getFoundGroups().size();
-            int maxPage = Math.max(0, (size - 1) / TARGET_PAGE_SIZE);
-            if (targetPage < maxPage) {
-                targetPage++;
-                refreshTargets();
-            }
-        });
-        targetPager.addView(targetNextButton, weight());
-
-        targetPageText = label("", 12, false);
-        targetPageText.setGravity(Gravity.CENTER);
-        targetPager.addView(targetPageText, weight());
-
-        Button targetPreviousButton = new Button(context);
-        targetPreviousButton.setText("قبلی");
-        targetPreviousButton.setAllCaps(false);
-        targetPreviousButton.setOnClickListener(v -> {
-            if (targetPage > 0) {
-                targetPage--;
-                refreshTargets();
-            }
-        });
-        targetPager.addView(targetPreviousButton, weight());
-
-        addView(targetPager, full());
 
         LinearLayout controls = new LinearLayout(context);
         controls.setOrientation(HORIZONTAL);
@@ -351,17 +313,11 @@ public final class CentralCorePanel extends LinearLayout {
     }
 
     public void refreshAll() {
-        removeCallbacks(delayedRefresh);
         refreshTargets();
         refreshGroups();
         refreshContacts();
         refreshPhotoStatus();
         refreshSummary();
-    }
-
-    public void scheduleRefresh() {
-        removeCallbacks(delayedRefresh);
-        postDelayed(delayedRefresh, 250L);
     }
 
     public void shutdown() {
@@ -450,8 +406,6 @@ public final class CentralCorePanel extends LinearLayout {
         List<TelegramClientManager.GroupInfo> groups = telegram.getFoundGroups();
 
         if (groups.isEmpty()) {
-            targetPage = 0;
-            if (targetPageText != null) targetPageText.setText("۰ مورد");
             targetContainer.addView(
                     label("هنوز گروهی از نتیجه جستجوی عمومی ثبت نشده است.", 13, false),
                     full()
@@ -459,21 +413,7 @@ public final class CentralCorePanel extends LinearLayout {
             return;
         }
 
-        int maxPage = Math.max(0, (groups.size() - 1) / TARGET_PAGE_SIZE);
-        if (targetPage > maxPage) targetPage = maxPage;
-
-        int from = targetPage * TARGET_PAGE_SIZE;
-        int to = Math.min(groups.size(), from + TARGET_PAGE_SIZE);
-
-        if (targetPageText != null) {
-            targetPageText.setText(
-                    (from + 1) + "–" + to + " از " + groups.size()
-            );
-        }
-
-        for (int i = from; i < to; i++) {
-            TelegramClientManager.GroupInfo group = groups.get(i);
-
+        for (TelegramClientManager.GroupInfo group : groups) {
             CheckBox check = new CheckBox(getContext());
             check.setText(
                     "#" + group.number + " — " + group.title + " — "
