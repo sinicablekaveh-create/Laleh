@@ -3,7 +3,6 @@ package com.sinicable.telegramelectric;
 import android.content.Context;
 import android.content.SharedPreferences;
 
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -18,8 +17,10 @@ public final class WordBank {
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "این", "اون", "آن", "برای", "با", "از", "به", "در", "رو", "را", "که", "یک",
             "روی", "های", "است", "هست", "بود", "شود", "شده", "کرد", "کن", "اگر", "اما",
+            "یا", "تا", "هم", "من", "تو", "ما", "شما", "او", "خود", "خیلی", "مثل",
             "the", "and", "for", "with", "from", "this", "that", "are", "was", "were",
-            "have", "has", "will", "you", "your", "our", "not"
+            "have", "has", "will", "you", "your", "our", "not", "but", "into", "out",
+            "can", "could", "should", "would", "there", "here", "what", "when"
     ));
 
     private static final String[] SEED_WORDS = {
@@ -34,11 +35,16 @@ public final class WordBank {
             "neutral", "phase", "circuit", "lighting", "sensor", "inverter", "generator"
     };
 
+    private static final int AUTO_ADD_SCORE = 8;
+
     private final SharedPreferences prefs;
     private final Set<String> words = new HashSet<>();
+    private final OfflineWordAI offlineAI;
 
     public WordBank(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
+        offlineAI = new OfflineWordAI(context);
+
         Set<String> saved = prefs.getStringSet(KEY_WORDS, null);
         if (saved != null && !saved.isEmpty()) {
             words.addAll(new HashSet<>(saved));
@@ -61,41 +67,37 @@ public final class WordBank {
     public synchronized int learnFromMessage(String message) {
         if (message == null || message.trim().isEmpty()) return 0;
 
-        String normalized = normalize(message);
-        String[] rawTokens = normalized.split("[^\\p{L}\\p{N}_-]+");
-        List<String> tokens = new ArrayList<>();
+        OfflineWordAI.Result result = offlineAI.analyze(
+                message,
+                new HashSet<>(words)
+        );
 
-        for (String token : rawTokens) {
-            String value = normalize(token);
-            if (!value.isEmpty()) tokens.add(value);
+        if (result.suggestions.isEmpty()) {
+            return 0;
         }
-        if (tokens.isEmpty()) return 0;
-
-        Set<Integer> anchors = new HashSet<>();
-        for (int i = 0; i < tokens.size(); i++) {
-            if (words.contains(tokens.get(i))) anchors.add(i);
-        }
-        if (anchors.isEmpty()) return 0;
 
         int added = 0;
-        for (int anchor : anchors) {
-            int start = Math.max(0, anchor - 2);
-            int end = Math.min(tokens.size() - 1, anchor + 2);
-            for (int i = start; i <= end; i++) {
-                String candidate = tokens.get(i);
-                if (isCandidate(candidate) && words.add(candidate)) {
-                    added++;
-                }
+        for (OfflineWordAI.Suggestion suggestion : result.suggestions) {
+            if (suggestion.score < AUTO_ADD_SCORE) {
+                continue;
+            }
+
+            String candidate = normalize(suggestion.word);
+            if (isCandidate(candidate) && words.add(candidate)) {
+                added++;
             }
         }
 
-        if (added > 0) persist();
+        if (added > 0) {
+            persist();
+        }
+
         return added;
     }
 
     public synchronized List<String> search(String query) {
         String q = normalize(query == null ? "" : query);
-        List<String> result = new ArrayList<>();
+        List<String> result = new java.util.ArrayList<>();
 
         for (String word : words) {
             if (q.isEmpty() || word.contains(q)) {
@@ -111,9 +113,17 @@ public final class WordBank {
         return words.size();
     }
 
+    public synchronized int learnedSignalCount() {
+        return offlineAI.learnedSignalCount();
+    }
+
+    static boolean isStopWord(String value) {
+        return STOP_WORDS.contains(normalize(value));
+    }
+
     private boolean isCandidate(String word) {
         if (word == null || word.length() < 2 || word.length() > 32) return false;
-        if (STOP_WORDS.contains(word)) return false;
+        if (isStopWord(word)) return false;
         return !word.matches("\\d+");
     }
 
