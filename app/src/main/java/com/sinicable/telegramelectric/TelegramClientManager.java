@@ -868,7 +868,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.4.0";
+        request.applicationVersion = "1.5.0";
 
         sendAuth(request);
     }
