@@ -31,7 +31,7 @@ public final class CentralCorePanel extends LinearLayout {
     }
 
     private final TelegramClientManager telegram;
-    private final CentralCore core;
+    private CentralCore core;
 
     private final EditText messageInput;
     private final Spinner scheduleSpinner;
