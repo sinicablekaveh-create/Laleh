@@ -169,9 +169,50 @@ public class TelegramClientManagerTest {
         try {
             Files.write(photo, new byte[] {1, 2, 3, 4});
             boolean[] success = {true};
-            manager.sendPhotoToChat(chat.id, photo.toString(), "برق", (ok, message) -> success[0] = ok);
+            String[] explanation = {""};
+            manager.sendPhotoToChat(chat.id, photo.toString(), "برق", (ok, message) -> {
+                success[0] = ok;
+                explanation[0] = message;
+            });
             assertFalse(success[0]);
+            assertTrue(explanation[0], explanation[0].contains("اجازه"));
             assertTrue(requests.isEmpty());
+        } finally {
+            Files.deleteIfExists(photo);
+        }
+    }
+
+    @Test
+    public void permittedPhotoBuildsValidTdlibPayloadAndReachesTransport() throws Exception {
+        TdApi.Chat chat = chat();
+        update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusAdministrator())));
+        update(new TdApi.UpdateNewChat(chat));
+        List<TdApi.Function> requests = new ArrayList<>();
+        Client transport = mock(Client.class);
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            ((Client.ResultHandler) call.getArgument(1)).onResult(new TdApi.Message());
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        setField("client", transport);
+        setField("currentStep", TelegramClientManager.AuthStep.READY);
+        Path photo = Files.createTempFile("telegram-permitted-photo", ".jpg");
+        try {
+            Files.write(photo, new byte[] {1, 2, 3, 4});
+            boolean[] success = {false};
+            String[] explanation = {""};
+            manager.sendPhotoToChat(chat.id, photo.toString(), " عکس برق ", (ok, message) -> {
+                success[0] = ok;
+                explanation[0] = message;
+            });
+            assertTrue(explanation[0], success[0]);
+            assertEquals(1, requests.size());
+            TdApi.SendMessage send = (TdApi.SendMessage) requests.get(0);
+            assertEquals(chat.id, send.chatId);
+            TdApi.InputMessagePhoto content = (TdApi.InputMessagePhoto) send.inputMessageContent;
+            assertEquals("عکس برق", content.caption.text);
+            assertEquals(photo.toString(), ((TdApi.InputFileLocal) content.photo).path);
+            assertEquals(0, java.lang.reflect.Array.getLength(content.addedStickerFileIds));
         } finally {
             Files.deleteIfExists(photo);
         }
