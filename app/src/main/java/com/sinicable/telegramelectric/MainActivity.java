@@ -5,6 +5,9 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Typeface;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -27,6 +30,8 @@ public final class MainActivity extends Activity {
 
     private TextView statusText;
     private TextView proxyStatusText;
+    private TextView internetStatusText;
+    private TextView telegramConnectionText;
     private TextView countText;
     private TextView wordsText;
     private EditText apiHashInput;
@@ -56,6 +61,11 @@ public final class MainActivity extends Activity {
             }
 
             @Override
+            public void onConnectionStatus(String message, boolean ready) {
+                runOnUiThread(() -> telegramConnectionText.setText(message));
+            }
+
+            @Override
             public void onError(String message) {
                 runOnUiThread(() -> {
                     statusText.setText("خطا: " + message);
@@ -78,6 +88,8 @@ public final class MainActivity extends Activity {
 
         setContentView(buildUi());
         refreshWords("");
+        checkInternetConnection();
+        telegram.emitCurrentConnectionStatus();
     }
 
     private View buildUi() {
@@ -101,6 +113,22 @@ public final class MainActivity extends Activity {
         statusText = text("آماده برای اتصال", 15, true);
         statusText.setPadding(dp(12), dp(12), dp(12), dp(12));
         root.addView(statusText, matchWrap());
+
+        space(root, 14);
+        root.addView(text("بررسی اتصال", 20, true), matchWrap());
+
+        internetStatusText = text("اینترنت: در حال بررسی...", 15, true);
+        root.addView(internetStatusText, matchWrap());
+
+        telegramConnectionText = text("تلگرام: هنوز شروع نشده است.", 15, true);
+        root.addView(telegramConnectionText, matchWrap());
+
+        Button connectionCheckButton = button("بررسی اینترنت و تلگرام");
+        connectionCheckButton.setOnClickListener(v -> {
+            checkInternetConnection();
+            telegram.emitCurrentConnectionStatus();
+        });
+        root.addView(connectionCheckButton, matchWrap());
 
         space(root, 18);
         root.addView(text("اتصال تلگرام", 20, true), matchWrap());
@@ -236,6 +264,60 @@ public final class MainActivity extends Activity {
         ), matchWrap());
 
         return scroll;
+    }
+
+
+    private void checkInternetConnection() {
+        ConnectivityManager manager =
+                (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+
+        if (manager == null) {
+            internetStatusText.setText("اینترنت: امکان بررسی وجود ندارد.");
+            return;
+        }
+
+        Network network = manager.getActiveNetwork();
+        if (network == null) {
+            internetStatusText.setText("اینترنت: قطع ⛔");
+            return;
+        }
+
+        NetworkCapabilities caps = manager.getNetworkCapabilities(network);
+        if (caps == null) {
+            internetStatusText.setText("اینترنت: وضعیت نامشخص");
+            return;
+        }
+
+        boolean hasInternet = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET);
+        boolean validated = caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
+
+        if (hasInternet && validated) {
+            String type = connectionType(caps);
+            internetStatusText.setText("اینترنت: متصل ✅" + (type.isEmpty() ? "" : " — " + type));
+        } else if (hasInternet) {
+            internetStatusText.setText("اینترنت: شبکه متصل است ولی دسترسی اینترنت تأیید نشده ⚠️");
+        } else {
+            internetStatusText.setText("اینترنت: قطع ⛔");
+        }
+    }
+
+    private String connectionType(NetworkCapabilities caps) {
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) return "Wi‑Fi";
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) return "دیتای موبایل";
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "Ethernet";
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return "VPN";
+        return "";
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (internetStatusText != null) {
+            checkInternetConnection();
+        }
+        if (telegram != null) {
+            telegram.emitCurrentConnectionStatus();
+        }
     }
 
     private void pasteAndApplyProxy() {
