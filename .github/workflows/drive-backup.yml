@@ -1,0 +1,25 @@
+name: Laleh Source Backup
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Laleh
+        uses: actions/checkout@v4
+
+      - name: Create ZIP
+        run: |
+          zip -r Laleh-main-source.zip . -x ".git/*"
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Laleh-main-source
+          path: Laleh-main-source.zip
