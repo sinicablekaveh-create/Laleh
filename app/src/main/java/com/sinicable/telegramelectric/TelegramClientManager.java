@@ -869,10 +869,11 @@ public final class TelegramClientManager {
 
     private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
         Object statusObject = readObjectField(meta, "status");
+        boolean joined = isJoinedGroupStatus(statusObject);
         boolean canSend = canSendFromStatus(statusObject)
                 && chatAllowsBasicMessages(chat, statusObject);
 
-        if (!canSend) {
+        if (!joined) {
             if (targetGroups.remove(chat.id) != null) {
                 listener.onTargetGroupChanged(chat.id);
             }
@@ -1089,6 +1090,15 @@ public final class TelegramClientManager {
             return ((String) editable).trim().replaceFirst("^@", "");
         }
         return "";
+    }
+
+    private static boolean isJoinedGroupStatus(Object status) {
+        if (status == null) return false;
+        String name = status.getClass().getSimpleName();
+        return name.contains("Creator")
+                || name.contains("Administrator")
+                || name.contains("Member")
+                || name.contains("Restricted");
     }
 
     private static boolean canSendFromStatus(Object status) {
