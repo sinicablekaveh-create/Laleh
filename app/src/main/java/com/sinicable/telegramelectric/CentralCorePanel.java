@@ -49,6 +49,7 @@ public final class CentralCorePanel extends LinearLayout {
     private EditText exportEndInput;
     private Spinner exportEntitySpinner;
     private ExportRequestListener exportRequestListener;
+    private final Runnable delayedRefresh = this::refreshAll;
     private int targetPage = 0;
     private static final int TARGET_PAGE_SIZE = 40;
 
@@ -350,11 +351,17 @@ public final class CentralCorePanel extends LinearLayout {
     }
 
     public void refreshAll() {
+        removeCallbacks(delayedRefresh);
         refreshTargets();
         refreshGroups();
         refreshContacts();
         refreshPhotoStatus();
         refreshSummary();
+    }
+
+    public void scheduleRefresh() {
+        removeCallbacks(delayedRefresh);
+        postDelayed(delayedRefresh, 250L);
     }
 
     public void shutdown() {
