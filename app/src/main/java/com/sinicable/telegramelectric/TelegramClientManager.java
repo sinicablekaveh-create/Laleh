@@ -57,7 +57,8 @@ public final class TelegramClientManager {
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
     private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.User> userCache = new ConcurrentHashMap<>();
-    private final java.util.Set<Long> observedSenderIds = ConcurrentHashMap.newKeySet();
+    private final Map<Long, TdApi.Chat> chatCache = new ConcurrentHashMap<>();
+    private final java.util.Set<Long> directSenderIds = ConcurrentHashMap.newKeySet();
     private final java.util.concurrent.ExecutorService runtimeExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.ExecutorService storageExecutor =
@@ -135,7 +136,7 @@ public final class TelegramClientManager {
             this.number = Math.max(0, number);
             this.id = id;
             this.name = cleanLabel(name, String.valueOf(id));
-            this.phone = cleanLabel(phone, "شماره مخفی/در دسترس نیست");
+            this.phone = phone == null ? "" : phone.trim();
         }
 
         ContactInfo(long id, String name, String phone) {
