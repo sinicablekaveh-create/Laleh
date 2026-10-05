@@ -102,11 +102,15 @@ public class TelegramClientManagerTest {
     }
 
     @Test
-    public void adminDemotionDisablesScheduledSending() throws Exception {
+    public void adminDemotionRespectsMemberChatPermissions() throws Exception {
         TdApi.Chat chat = chat();
         update(new TdApi.UpdateNewChat(chat));
         inspect(chat, metadata(new TdApi.ChatMemberStatusAdministrator()));
+        assertTrue(manager.getTargetGroup(chat.id).canSend);
+
+        setChatBasicMessagePermission(chat, false);
         update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+
         assertFalse(manager.getTargetGroup(chat.id).canSend);
     }
 
