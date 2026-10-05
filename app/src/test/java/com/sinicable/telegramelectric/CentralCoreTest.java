@@ -26,7 +26,7 @@ import static org.mockito.Mockito.*;
 
 public class CentralCoreTest {
     private final ArrayDeque<Runnable> immediate = new ArrayDeque<>();
-    private final List<Runnable> delayed = new ArrayList<>();
+    private final List<Scheduled> delayed = new ArrayList<>();
     private final List<TdApi.Function> requests = new ArrayList<>();
     private final List<String> statuses = new ArrayList<>();
     private MockedStatic<Looper> loopers;
@@ -35,6 +35,13 @@ public class CentralCoreTest {
     private CentralCore core;
     private boolean deferDiscovery;
     private Client.ResultHandler pendingDiscovery;
+    private String sendFailure;
+
+    private static final class Scheduled {
+        final Runnable runnable;
+        final long delay;
+        Scheduled(Runnable runnable, long delay) { this.runnable = runnable; this.delay = delay; }
+    }
 
     @Before
     public void setUp() throws Exception {
@@ -46,13 +53,13 @@ public class CentralCoreTest {
                 return true;
             });
             when(handler.postDelayed(any(Runnable.class), anyLong())).thenAnswer(call -> {
-                delayed.add(call.getArgument(0));
+                delayed.add(new Scheduled(call.getArgument(0), call.getArgument(1)));
                 return true;
             });
             doAnswer(call -> {
                 Runnable target = call.getArgument(0);
                 immediate.removeIf(value -> value == target);
-                delayed.removeIf(value -> value == target);
+                delayed.removeIf(value -> value.runnable == target);
                 return null;
             }).when(handler).removeCallbacks(any(Runnable.class));
         });
@@ -72,7 +79,7 @@ public class CentralCoreTest {
             Client.ResultHandler response = call.getArgument(1);
             requests.add(request);
             if (request instanceof TdApi.SendMessage) {
-                response.onResult(new TdApi.Message());
+                response.onResult(sendFailure == null ? new TdApi.Message() : new TdApi.Error(429, sendFailure));
             } else if (deferDiscovery) {
                 pendingDiscovery = response;
             } else {
@@ -166,6 +173,42 @@ public class CentralCoreTest {
         assertEquals(stopped, statuses.get(statuses.size() - 1));
         assertEquals(statusCount, statuses.size());
         assertTrue(delayed.isEmpty());
+    }
+
+    @Test
+    public void savingActiveSettingsPreservesHourlyIntervalInsteadOfSendingAgain() throws Exception {
+        joinedGroup(5L, new TdApi.ChatMemberStatusAdministrator());
+        core.setMessage("برق");
+        core.setGroupSelected(-1005L, true);
+        core.setMode(CentralCore.ScheduleMode.EVERY_HOUR);
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, sentMessages().size());
+        core.setMessage("متن جدید برق");
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, sentMessages().size());
+        assertTrue(core.isEnabled());
+        assertEquals("متن جدید برق", core.getMessage());
+        assertTrue(delayed.stream().anyMatch(task -> task.delay >= 3_600_000L));
+    }
+
+    @Test
+    public void changingAndSavingActiveSettingsCannotCancelTelegramFloodWait() throws Exception {
+        joinedGroup(5L, new TdApi.ChatMemberStatusAdministrator());
+        core.setMessage("برق");
+        core.setGroupSelected(-1005L, true);
+        sendFailure = "FLOOD_WAIT_300";
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, sentMessages().size());
+        core.setMode(CentralCore.ScheduleMode.EVERY_HOUR);
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertTrue(core.isEnabled());
+        assertEquals(1, sentMessages().size());
+        assertEquals(1, delayed.size());
+        assertTrue(delayed.get(0).delay >= 300_000L);
     }
 
     private void runImmediateTasks() {
