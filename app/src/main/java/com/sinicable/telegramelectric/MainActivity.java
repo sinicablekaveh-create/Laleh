@@ -27,6 +27,7 @@ import java.util.List;
 public final class MainActivity extends Activity {
     private TelegramClientManager telegram;
     private WordBank wordBank;
+    private CentralCorePanel corePanel;
 
     private TextView statusText;
     private TextView proxyStatusText;
@@ -68,7 +69,7 @@ public final class MainActivity extends Activity {
             @Override
             public void onRecipientsChanged() {
                 runOnUiThread(() -> {
-                    // UI sections that depend on groups/contacts are refreshed below.
+                    if (corePanel != null) corePanel.refreshAll();
                 });
             }
 
@@ -212,6 +213,10 @@ public final class MainActivity extends Activity {
         root.addView(authButton, matchWrap());
 
         space(root, 22);
+        corePanel = new CentralCorePanel(this, telegram, wordBank);
+        root.addView(corePanel, matchWrap());
+
+        space(root, 22);
         root.addView(text("بانک واژه برق", 20, true), matchWrap());
 
         CheckBox autoLearnCheck = new CheckBox(this);
@@ -324,6 +329,9 @@ public final class MainActivity extends Activity {
         }
         if (telegram != null) {
             telegram.emitCurrentConnectionStatus();
+        }
+        if (corePanel != null) {
+            corePanel.refreshAll();
         }
     }
 
@@ -464,6 +472,7 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        if (corePanel != null) corePanel.shutdown();
         telegram.close();
         super.onDestroy();
     }
