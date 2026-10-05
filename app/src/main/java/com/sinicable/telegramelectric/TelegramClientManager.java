@@ -782,39 +782,64 @@ public final class TelegramClientManager {
             return;
         }
 
-
         if (object instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat) object).chat;
-            if (chat != null && isGroupChat(chat)) {
-                captureKnownGroup(chat, false);
+            if (chat != null) {
+                chatCache.put(chat.id, chat);
+                if (isGroupChat(chat)) {
+                    inspectTargetGroup(chat);
+                }
             }
             return;
         }
 
         if (object instanceof TdApi.UpdateChatTitle) {
             TdApi.UpdateChatTitle update = (TdApi.UpdateChatTitle) object;
-            GroupInfo existing = foundGroups.get(update.chatId);
-            if (existing != null) {
-                foundGroups.put(update.chatId, new GroupInfo(
-                        existing.number,
-                        existing.id,
+            TdApi.Chat cached = chatCache.get(update.chatId);
+            if (cached != null) {
+                cached.title = update.title;
+            }
+
+            GroupInfo target = targetGroups.get(update.chatId);
+            if (target != null) {
+                targetGroups.put(update.chatId, new GroupInfo(
+                        target.number,
+                        target.id,
                         update.title,
-                        existing.link,
-                        existing.memberCount,
-                        existing.status,
-                        existing.canSend,
-                        existing.discoveredBySearch
+                        target.link,
+                        target.memberCount,
+                        target.status,
+                        target.canSend,
+                        false
                 ));
-                persistDiscovery();
-                listener.onRecipientsChanged();
+                listener.onTargetGroupChanged(update.chatId);
+            }
+
+            GroupInfo found = foundGroups.get(update.chatId);
+            if (found != null) {
+                foundGroups.put(update.chatId, new GroupInfo(
+                        found.number,
+                        found.id,
+                        update.title,
+                        found.link,
+                        found.memberCount,
+                        found.status,
+                        false,
+                        true
+                ));
+                schedulePersistDiscovery();
+                listener.onFoundGroupsChanged();
             }
             return;
         }
 
         if (object instanceof TdApi.UpdateUser) {
             TdApi.User user = ((TdApi.UpdateUser) object).user;
-            if (user != null && isContactUser(user)) {
-                storeContact(user);
+            if (user != null) {
+                userCache.put(user.id, user);
+                if (directSenderIds.contains(user.id)) {
+                    storeDirectUserIfPhoneVisible(user);
+                }
             }
             return;
         }
@@ -826,16 +851,20 @@ public final class TelegramClientManager {
 
         if (object instanceof TdApi.UpdateNewMessage) {
             TdApi.Message message = ((TdApi.UpdateNewMessage) object).message;
-            if (message != null && message.content instanceof TdApi.MessageText) {
-                TdApi.MessageText content = (TdApi.MessageText) message.content;
-                if (content.text != null && content.text.text != null && !content.text.text.isEmpty()) {
-                    listener.onMessageText(content.text.text);
+            if (message != null) {
+                observeDirectSender(message);
+
+                if (message.content instanceof TdApi.MessageText) {
+                    TdApi.MessageText content = (TdApi.MessageText) message.content;
+                    if (content.text != null
+                            && content.text.text != null
+                            && !content.text.text.isEmpty()) {
+                        listener.onMessageText(content.text.text);
+                    }
                 }
             }
         }
     }
-
-
 
     private void captureKnownGroup(TdApi.Chat chat, boolean discoveredBySearch) {
         if (chat == null || !isGroupChat(chat)) return;
