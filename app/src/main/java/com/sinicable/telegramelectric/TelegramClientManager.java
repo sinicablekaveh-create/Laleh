@@ -9,6 +9,11 @@ import org.drinkless.tdlib.TdApi;
 import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class TelegramClientManager {
     public enum AuthStep {
@@ -20,6 +25,7 @@ public final class TelegramClientManager {
         void onAuthStep(AuthStep step, String message);
         void onProxyStatus(String message);
         void onConnectionStatus(String message, boolean ready);
+        void onRecipientsChanged();
         void onError(String message);
         void onMessageText(String text);
     }
@@ -31,8 +37,25 @@ public final class TelegramClientManager {
     private int apiId;
     private String apiHash = "";
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
+    private final Map<Long, RecipientInfo> foundGroups = new ConcurrentHashMap<>();
+    private final Map<Long, RecipientInfo> telegramContacts = new ConcurrentHashMap<>();
     private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
     private volatile boolean connectionReady = false;
+
+
+    public static final class RecipientInfo {
+        public final long id;
+        public final String title;
+
+        RecipientInfo(long id, String title) {
+            this.id = id;
+            this.title = title == null || title.trim().isEmpty() ? String.valueOf(id) : title.trim();
+        }
+    }
+
+    public interface SendCallback {
+        void onResult(boolean success, String message);
+    }
 
     public TelegramClientManager(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -76,6 +99,76 @@ public final class TelegramClientManager {
 
     public void emitCurrentConnectionStatus() {
         listener.onConnectionStatus(connectionStatusMessage, connectionReady);
+    }
+
+
+    public boolean isReadyForSending() {
+        return currentStep == AuthStep.READY && connectionReady && client != null;
+    }
+
+    public List<RecipientInfo> getFoundGroups() {
+        List<RecipientInfo> result = new ArrayList<>(foundGroups.values());
+        result.sort(Comparator.comparing(info -> info.title.toLowerCase()));
+        return result;
+    }
+
+    public List<RecipientInfo> getTelegramContacts() {
+        List<RecipientInfo> result = new ArrayList<>(telegramContacts.values());
+        result.sort(Comparator.comparing(info -> info.title.toLowerCase()));
+        return result;
+    }
+
+    public void sendTextToChat(long chatId, String message, SendCallback callback) {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            if (callback != null) callback.onResult(false, "تلگرام آماده ارسال نیست.");
+            return;
+        }
+        String clean = message == null ? "" : message.trim();
+        if (clean.isEmpty()) {
+            if (callback != null) callback.onResult(false, "متن پیام خالی است.");
+            return;
+        }
+
+        TdApi.InputMessageContent content = new TdApi.InputMessageText(
+                new TdApi.FormattedText(clean, null),
+                null,
+                true
+        );
+
+        local.send(
+                new TdApi.SendMessage(chatId, null, null, null, null, content),
+                result -> {
+                    if (result instanceof TdApi.Error) {
+                        TdApi.Error error = (TdApi.Error) result;
+                        if (callback != null) callback.onResult(false, error.code + ": " + error.message);
+                    } else {
+                        if (callback != null) callback.onResult(true, "ارسال شد.");
+                    }
+                }
+        );
+    }
+
+    public void sendTextToUser(long userId, String message, SendCallback callback) {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            if (callback != null) callback.onResult(false, "تلگرام آماده ارسال نیست.");
+            return;
+        }
+
+        local.send(new TdApi.CreatePrivateChat(userId, false), result -> {
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                if (callback != null) callback.onResult(false, error.code + ": " + error.message);
+                return;
+            }
+
+            if (result instanceof TdApi.Chat) {
+                sendTextToChat(((TdApi.Chat) result).id, message, callback);
+            } else {
+                if (callback != null) callback.onResult(false, "چت خصوصی ساخته نشد.");
+            }
+        });
     }
 
     public void setProxyFromLink(String link) {
@@ -286,6 +379,38 @@ public final class TelegramClientManager {
             return;
         }
 
+
+        if (object instanceof TdApi.UpdateNewChat) {
+            TdApi.Chat chat = ((TdApi.UpdateNewChat) object).chat;
+            if (chat != null && (chat.type instanceof TdApi.ChatTypeBasicGroup
+                    || chat.type instanceof TdApi.ChatTypeSupergroup)) {
+                foundGroups.put(chat.id, new RecipientInfo(chat.id, chat.title));
+                listener.onRecipientsChanged();
+            }
+            return;
+        }
+
+        if (object instanceof TdApi.UpdateChatTitle) {
+            TdApi.UpdateChatTitle update = (TdApi.UpdateChatTitle) object;
+            RecipientInfo existing = foundGroups.get(update.chatId);
+            if (existing != null) {
+                foundGroups.put(update.chatId, new RecipientInfo(update.chatId, update.title));
+                listener.onRecipientsChanged();
+            }
+            return;
+        }
+
+        if (object instanceof TdApi.UpdateUser) {
+            TdApi.User user = ((TdApi.UpdateUser) object).user;
+            if (user != null && isContactUser(user)) {
+                String name = ((user.firstName == null ? "" : user.firstName) + " "
+                        + (user.lastName == null ? "" : user.lastName)).trim();
+                telegramContacts.put(user.id, new RecipientInfo(user.id, name));
+                listener.onRecipientsChanged();
+            }
+            return;
+        }
+
         if (object instanceof TdApi.UpdateAuthorizationState) {
             handleAuthorizationState(((TdApi.UpdateAuthorizationState) object).authorizationState);
             return;
@@ -302,6 +427,17 @@ public final class TelegramClientManager {
         }
     }
 
+
+
+    private static boolean isContactUser(TdApi.User user) {
+        try {
+            Field field = user.getClass().getField("isContact");
+            Object value = field.get(user);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
 
     private void handleConnectionState(TdApi.ConnectionState state) {
         String message;
@@ -388,7 +524,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.3.0";
+        request.applicationVersion = "1.4.0";
 
         sendAuth(request);
     }
