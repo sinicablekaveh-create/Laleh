@@ -393,7 +393,7 @@ public final class MainActivity extends Activity {
             @Override
             public void onRecipientsChanged() {
                 runOnUiThread(() -> {
-                    if (corePanel != null) corePanel.scheduleRefresh();
+                    if (corePanel != null) corePanel.refreshAll();
                 });
             }
 
