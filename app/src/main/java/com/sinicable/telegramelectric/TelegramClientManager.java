@@ -40,7 +40,7 @@ public final class TelegramClientManager {
     private static final String KEY_CONTACTS_JSON = "contacts_json";
 
     private final Context context;
-    private final Listener listener;
+    private volatile Listener listener;
     private final SharedPreferences discoveryPrefs;
     private volatile AuthStep currentStep = AuthStep.IDLE;
     private Client client;
@@ -110,6 +110,12 @@ public final class TelegramClientManager {
         this.listener = listener;
         this.discoveryPrefs = this.context.getSharedPreferences(DISCOVERY_PREFS, Context.MODE_PRIVATE);
         loadDiscovery();
+    }
+
+    public void setListener(Listener listener) {
+        if (listener != null) {
+            this.listener = listener;
+        }
     }
 
     public synchronized void start(int apiId, String apiHash) {
