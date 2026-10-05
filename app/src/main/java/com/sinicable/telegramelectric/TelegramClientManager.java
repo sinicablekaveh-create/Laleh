@@ -7,6 +7,8 @@ import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 
 import java.io.File;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 
 public final class TelegramClientManager {
     public enum AuthStep {
@@ -16,6 +18,7 @@ public final class TelegramClientManager {
 
     public interface Listener {
         void onAuthStep(AuthStep step, String message);
+        void onProxyStatus(String message);
         void onError(String message);
         void onMessageText(String text);
     }
@@ -26,6 +29,7 @@ public final class TelegramClientManager {
     private Client client;
     private int apiId;
     private String apiHash = "";
+    private volatile ProxyLinkParser.ProxyConfig pendingProxy;
 
     public TelegramClientManager(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -50,6 +54,12 @@ public final class TelegramClientManager {
                     error -> listener.onError("خطای TDLib: " + safeMessage(error)),
                     error -> listener.onError("خطای TDLib: " + safeMessage(error))
             );
+
+            ProxyLinkParser.ProxyConfig queued = pendingProxy;
+            if (queued != null) {
+                applyProxy(queued);
+            }
+
             listener.onAuthStep(AuthStep.WAIT_PARAMETERS, "در حال راه‌اندازی اتصال تلگرام...");
         } catch (Throwable error) {
             client = null;
@@ -59,6 +69,26 @@ public final class TelegramClientManager {
 
     public AuthStep getCurrentStep() {
         return currentStep;
+    }
+
+    public void setProxyFromLink(String link) {
+        final ProxyLinkParser.ProxyConfig config;
+        try {
+            config = ProxyLinkParser.parse(link);
+        } catch (IllegalArgumentException error) {
+            listener.onError(error.getMessage());
+            return;
+        }
+
+        pendingProxy = config;
+        if (client == null) {
+            listener.onProxyStatus(
+                    "پروکسی آماده شد. بعد از زدن «شروع اتصال» به‌صورت خودکار فعال می‌شود."
+            );
+            return;
+        }
+
+        applyProxy(config);
     }
 
     public void submitPhone(String phone) {
@@ -110,6 +140,137 @@ public final class TelegramClientManager {
             default:
                 listener.onError("در این مرحله ورودی اضافی لازم نیست.");
         }
+    }
+
+    private void applyProxy(ProxyLinkParser.ProxyConfig config) {
+        Client local = client;
+        if (local == null) {
+            listener.onProxyStatus("پروکسی ذخیره شد و با شروع اتصال فعال می‌شود.");
+            return;
+        }
+
+        final TdApi.Function request;
+        try {
+            request = buildAddProxyFunction(config);
+        } catch (Throwable error) {
+            listener.onError("ساخت تنظیمات پروکسی ناموفق بود: " + safeMessage(error));
+            return;
+        }
+
+        listener.onProxyStatus("در حال فعال‌سازی پروکسی " + config.server + ":" + config.port + " ...");
+        local.send(request, result -> {
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                listener.onError("Proxy " + error.code + ": " + error.message);
+            } else {
+                pendingProxy = config;
+                String type = config.type == ProxyLinkParser.Type.MTPROTO ? "MTProto" : "SOCKS5";
+                listener.onProxyStatus(type + " فعال شد: " + config.server + ":" + config.port);
+            }
+        });
+    }
+
+    private TdApi.Function buildAddProxyFunction(ProxyLinkParser.ProxyConfig config) throws Exception {
+        Object proxyType = buildProxyType(config);
+        Class<?> addProxyClass = Class.forName("org.drinkless.tdlib.TdApi$AddProxy");
+
+        for (Constructor<?> constructor : addProxyClass.getConstructors()) {
+            Class<?>[] params = constructor.getParameterTypes();
+
+            if (params.length == 4
+                    && params[0] == String.class
+                    && (params[1] == int.class || params[1] == Integer.class)
+                    && (params[2] == boolean.class || params[2] == Boolean.class)) {
+                return (TdApi.Function) constructor.newInstance(
+                        config.server, config.port, true, proxyType
+                );
+            }
+
+            if (params.length == 2
+                    && (params[1] == boolean.class || params[1] == Boolean.class)) {
+                Object proxy = buildProxyObject(config, proxyType);
+                if (params[0].isAssignableFrom(proxy.getClass())) {
+                    return (TdApi.Function) constructor.newInstance(proxy, true);
+                }
+            }
+        }
+
+        Object request = addProxyClass.getDeclaredConstructor().newInstance();
+
+        if (hasField(addProxyClass, "server")) {
+            setField(request, "server", config.server);
+            setField(request, "port", config.port);
+            setField(request, "enable", true);
+            setField(request, "type", proxyType);
+        } else {
+            Object proxy = buildProxyObject(config, proxyType);
+            setField(request, "proxy", proxy);
+            setField(request, "enable", true);
+        }
+
+        return (TdApi.Function) request;
+    }
+
+    private Object buildProxyType(ProxyLinkParser.ProxyConfig config) throws Exception {
+        String className = config.type == ProxyLinkParser.Type.MTPROTO
+                ? "org.drinkless.tdlib.TdApi$ProxyTypeMtproto"
+                : "org.drinkless.tdlib.TdApi$ProxyTypeSocks5";
+
+        Class<?> typeClass = Class.forName(className);
+
+        if (config.type == ProxyLinkParser.Type.MTPROTO) {
+            try {
+                return typeClass.getConstructor(String.class).newInstance(config.secret);
+            } catch (NoSuchMethodException ignored) {
+                Object type = typeClass.getDeclaredConstructor().newInstance();
+                setField(type, "secret", config.secret);
+                return type;
+            }
+        }
+
+        try {
+            return typeClass.getConstructor(String.class, String.class)
+                    .newInstance(config.username, config.password);
+        } catch (NoSuchMethodException ignored) {
+            Object type = typeClass.getDeclaredConstructor().newInstance();
+            setField(type, "username", config.username);
+            setField(type, "password", config.password);
+            return type;
+        }
+    }
+
+    private Object buildProxyObject(ProxyLinkParser.ProxyConfig config, Object proxyType) throws Exception {
+        Class<?> proxyClass = Class.forName("org.drinkless.tdlib.TdApi$Proxy");
+
+        for (Constructor<?> constructor : proxyClass.getConstructors()) {
+            Class<?>[] params = constructor.getParameterTypes();
+            if (params.length == 3
+                    && params[0] == String.class
+                    && (params[1] == int.class || params[1] == Integer.class)
+                    && params[2].isAssignableFrom(proxyType.getClass())) {
+                return constructor.newInstance(config.server, config.port, proxyType);
+            }
+        }
+
+        Object proxy = proxyClass.getDeclaredConstructor().newInstance();
+        setField(proxy, "server", config.server);
+        setField(proxy, "port", config.port);
+        setField(proxy, "type", proxyType);
+        return proxy;
+    }
+
+    private static boolean hasField(Class<?> type, String name) {
+        try {
+            type.getField(name);
+            return true;
+        } catch (NoSuchFieldException e) {
+            return false;
+        }
+    }
+
+    private static void setField(Object target, String name, Object value) throws Exception {
+        Field field = target.getClass().getField(name);
+        field.set(target, value);
     }
 
     private void onUpdate(TdApi.Object object) {
@@ -190,7 +351,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.0.0";
+        request.applicationVersion = "1.1.0";
 
         sendAuth(request);
     }
