@@ -74,10 +74,12 @@ public class TelegramClientManagerTest {
     }
 
     @Test
-    public void ordinaryMemberIsVisibleWithSendingDisabled() throws Exception {
-        inspect(chat(), metadata(new TdApi.ChatMemberStatusMember()));
+    public void ordinaryMemberUsesChatPermissionsForSending() throws Exception {
+        TdApi.Chat chat = chat();
+        setChatBasicMessagePermission(chat, true);
+        inspect(chat, metadata(new TdApi.ChatMemberStatusMember()));
         assertNotNull(manager.getTargetGroup(-1005L));
-        assertFalse(manager.getTargetGroup(-1005L).canSend);
+        assertTrue(manager.getTargetGroup(-1005L).canSend);
     }
 
     @Test
@@ -211,6 +213,19 @@ public class TelegramClientManagerTest {
         group.status = status;
         group.memberCount = 40;
         return group;
+    }
+
+    private static void setChatBasicMessagePermission(TdApi.Chat chat, boolean allowed)
+            throws Exception {
+        Class<?> permissionsClass =
+                Class.forName("org.drinkless.tdlib.TdApi$ChatPermissions");
+        Object permissions = permissionsClass.getDeclaredConstructor().newInstance();
+        try {
+            permissionsClass.getField("canSendBasicMessages").set(permissions, allowed);
+        } catch (NoSuchFieldException missingCurrentField) {
+            permissionsClass.getField("canSendMessages").set(permissions, allowed);
+        }
+        chat.getClass().getField("permissions").set(chat, permissions);
     }
 
     private void inspect(TdApi.Chat chat, TdApi.Supergroup group) throws Exception {
