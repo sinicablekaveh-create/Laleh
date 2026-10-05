@@ -414,7 +414,7 @@ public final class TelegramClientManager {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
                         boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat, false);
+                        captureKnownGroup(chat, true);
                         if (isNew) newItems.incrementAndGet();
                     }
 
@@ -473,7 +473,7 @@ public final class TelegramClientManager {
                         TdApi.Chat chat = (TdApi.Chat) chatResult;
                         validItems.incrementAndGet();
                         boolean isNew = !foundGroups.containsKey(chat.id);
-                        captureKnownGroup(chat, true);
+                        captureKnownGroup(chat, false);
                         if (isNew) newItems.incrementAndGet();
                     }
 
@@ -702,7 +702,7 @@ public final class TelegramClientManager {
         if (object instanceof TdApi.UpdateNewChat) {
             TdApi.Chat chat = ((TdApi.UpdateNewChat) object).chat;
             if (chat != null && isGroupChat(chat)) {
-                captureKnownGroup(chat);
+                captureKnownGroup(chat, false);
             }
             return;
         }
