@@ -76,7 +76,15 @@ public final class BackgroundCoreService extends Service {
                     }
 
                     @Override
-                    public void onRecipientsChanged() {
+                    public void onTargetGroupChanged(long chatId) {
+                    }
+
+                    @Override
+                    public void onFoundGroupsChanged() {
+                    }
+
+                    @Override
+                    public void onObservedUsersChanged() {
                     }
 
                     @Override
