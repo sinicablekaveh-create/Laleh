@@ -898,7 +898,7 @@ public final class TelegramClientManager {
                 link,
                 memberCount,
                 describeMemberStatus(statusObject),
-                true,
+                canSend,
                 false
         ));
         listener.onTargetGroupChanged(chat.id);
