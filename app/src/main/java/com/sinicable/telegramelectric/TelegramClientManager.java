@@ -223,7 +223,7 @@ public final class TelegramClientManager {
             return;
         }
 
-        local.send(new TdApi.SearchChats(clean, 50), result -> {
+        local.send(new TdApi.SearchChats(clean, null, 50), result -> {
             if (result instanceof TdApi.Error) {
                 TdApi.Error error = (TdApi.Error) result;
                 if (callback != null) {
