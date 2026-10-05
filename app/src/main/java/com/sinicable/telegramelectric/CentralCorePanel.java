@@ -14,7 +14,9 @@ import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.TextView;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class CentralCorePanel extends LinearLayout {
     public interface PhotoRequestListener {
@@ -40,6 +42,9 @@ public final class CentralCorePanel extends LinearLayout {
     private final TextView summaryText;
     private final TextView groupsText;
     private final TextView contactsText;
+    private TextView targetEmptyText;
+    private final Map<Long, CheckBox> targetChecks = new LinkedHashMap<>();
+    private final Map<Long, TextView> targetNotes = new LinkedHashMap<>();
     private final Button startButton;
     private final Button stopButton;
     private final TextView photoStatusText;
@@ -100,7 +105,7 @@ public final class CentralCorePanel extends LinearLayout {
         addView(label("۱) ارسال زمان‌بندی‌شده پیام", 19, true), full());
 
         TextView safeNote = label(
-                "ارسال زمان‌بندی‌شده فقط به گروه‌هایی انجام می‌شود که از نتیجه جستجو پیدا شده‌اند، خودت انتخابشان کرده‌ای و حساب اجازه ارسال پیام در آن‌ها دارد.",
+                "گروه‌های هدف فقط از گروه‌هایی می‌آیند که حساب داخلشان عضو، مدیر یا مالک است و تلگرام اجازه ارسال پیام می‌دهد.",
                 12,
                 false
         );
@@ -191,9 +196,9 @@ public final class CentralCorePanel extends LinearLayout {
         addView(groupsText, full());
 
         addSpace(14);
-        addView(label("۳) مخاطبین موجود حساب", 19, true), full());
+        addView(label("۳) کاربران جدید دارای شماره", 19, true), full());
         TextView contactNote = label(
-                "این بخش فقط مخاطبین قابل مشاهده حساب را نگه می‌دارد. مخاطبین مقصد ارسال زمان‌بندی‌شده نیستند.",
+                "این بخش فقط کاربران گفت‌وگوی مستقیم را نگه می‌دارد که شماره تلفنشان واقعاً برای حساب قابل مشاهده باشد. شماره مخفی یا خالی ذخیره نمی‌شود.",
                 12,
                 false
         );
@@ -206,7 +211,7 @@ public final class CentralCorePanel extends LinearLayout {
         addSpace(14);
         addView(label("۴) دریافت فایل", 19, true), full());
         addView(label(
-                "نوع داده و بازه شماره‌ها را انتخاب کن؛ مثلا مخاطب یا گروه شماره ۵۰۰ تا ۱۰۰۰.",
+                "نوع داده و بازه شماره‌ها را انتخاب کن؛ مثلا کاربر دارای شماره یا گروه پیداشده شماره ۵۰۰ تا ۱۰۰۰.",
                 12,
                 false
         ), full());
@@ -215,7 +220,7 @@ public final class CentralCorePanel extends LinearLayout {
         ArrayAdapter<String> exportEntityAdapter = new ArrayAdapter<>(
                 context,
                 android.R.layout.simple_spinner_item,
-                new String[]{"مخاطبین", "گروه‌ها"}
+                new String[]{"کاربران دارای شماره", "گروه‌های پیداشده"}
         );
         exportEntityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         exportEntitySpinner.setAdapter(exportEntityAdapter);
@@ -320,6 +325,62 @@ public final class CentralCorePanel extends LinearLayout {
         refreshSummary();
     }
 
+    public void onTargetGroupChanged(long chatId) {
+        TelegramClientManager.GroupInfo group = telegram.getTargetGroup(chatId);
+
+        if (group == null) {
+            CheckBox check = targetChecks.remove(chatId);
+            TextView note = targetNotes.remove(chatId);
+            if (check != null) targetContainer.removeView(check);
+            if (note != null) targetContainer.removeView(note);
+
+            if (targetChecks.isEmpty()) {
+                showTargetEmptyMessage();
+            }
+            refreshSummary();
+            return;
+        }
+
+        if (targetEmptyText != null) {
+            targetContainer.removeView(targetEmptyText);
+            targetEmptyText = null;
+        }
+
+        CheckBox check = targetChecks.get(chatId);
+        if (check == null) {
+            check = new CheckBox(getContext());
+            final long targetId = chatId;
+            check.setOnCheckedChangeListener(
+                    (buttonView, isChecked) -> core.setGroupSelected(targetId, isChecked)
+            );
+            targetChecks.put(chatId, check);
+            targetContainer.addView(check, full());
+        }
+
+        check.setText(
+                group.title + " — "
+                        + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
+                        + " — " + group.status
+        );
+        check.setEnabled(true);
+        check.setChecked(core.isGroupSelected(group.id));
+
+        TextView note = targetNotes.remove(chatId);
+        if (note != null) targetContainer.removeView(note);
+
+        refreshSummary();
+    }
+
+    public void onFoundGroupsChanged() {
+        refreshGroups();
+        refreshSummary();
+    }
+
+    public void onObservedUsersChanged() {
+        refreshContacts();
+        refreshSummary();
+    }
+
     public void shutdown() {
         core.shutdown();
     }
@@ -392,8 +453,8 @@ public final class CentralCorePanel extends LinearLayout {
                 "وضعیت: " + (core.isEnabled() ? "فعال ✅" : "متوقف")
                         + " | گروه هدف: " + core.selectedGroupCount()
                         + " | ارسال موفق: " + core.getSentCount()
-                        + "\nگروه ثبت‌شده: " + telegram.getFoundGroups().size()
-                        + " | مخاطب یکتا: " + telegram.getTelegramContacts().size()
+                        + "\nگروه پیدا‌شده: " + telegram.getFoundGroups().size()
+                        + " | کاربر دارای شماره: " + telegram.getTelegramContacts().size()
                         + " | صف هوشمند: " + core.queueSize() + " واژه"
         );
 
@@ -403,45 +464,48 @@ public final class CentralCorePanel extends LinearLayout {
 
     private void refreshTargets() {
         targetContainer.removeAllViews();
-        List<TelegramClientManager.GroupInfo> groups = telegram.getFoundGroups();
+        targetChecks.clear();
+        targetNotes.clear();
+        targetEmptyText = null;
 
+        List<TelegramClientManager.GroupInfo> groups = telegram.getTargetGroups();
         if (groups.isEmpty()) {
-            targetContainer.addView(
-                    label("هنوز گروهی از نتیجه جستجوی عمومی ثبت نشده است.", 13, false),
-                    full()
-            );
+            showTargetEmptyMessage();
             return;
         }
 
         for (TelegramClientManager.GroupInfo group : groups) {
             CheckBox check = new CheckBox(getContext());
-            check.setText(
-                    "#" + group.number + " — " + group.title + " — "
-                            + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
-            );
-            check.setChecked(core.isGroupSelected(group.id));
-            check.setEnabled(group.canSend);
+            final long targetId = group.id;
             check.setOnCheckedChangeListener(
-                    (buttonView, isChecked) -> core.setGroupSelected(group.id, isChecked)
+                    (buttonView, isChecked) -> core.setGroupSelected(targetId, isChecked)
             );
+            check.setText(
+                    group.title + " — "
+                            + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
+                            + " — " + group.status
+            );
+            check.setEnabled(true);
+            check.setChecked(core.isGroupSelected(group.id));
+            targetChecks.put(group.id, check);
             targetContainer.addView(check, full());
-
-            if (!group.canSend) {
-                TextView note = label(
-                        "وضعیت: " + group.status + " — حساب فعلاً اجازه ارسال پیام در این گروه را ندارد.",
-                        11,
-                        false
-                );
-                note.setPadding(dp(24), 0, dp(24), dp(3));
-                targetContainer.addView(note, full());
-            }
         }
+    }
+
+    private void showTargetEmptyMessage() {
+        if (targetEmptyText != null) return;
+        targetEmptyText = label(
+                "هنوز گروه قابل ارسال از حساب تلگرام دریافت نشده است.",
+                13,
+                false
+        );
+        targetContainer.addView(targetEmptyText, full());
     }
 
     private void refreshGroups() {
         List<TelegramClientManager.GroupInfo> groups = telegram.getFoundGroups();
         if (groups.isEmpty()) {
-            groupsText.setText("هنوز گروهی ثبت نشده است.");
+            groupsText.setText("هنوز گروهی از جستجوی بانک کلمات پیدا نشده است.");
             return;
         }
 
@@ -464,7 +528,7 @@ public final class CentralCorePanel extends LinearLayout {
     private void refreshContacts() {
         List<TelegramClientManager.ContactInfo> contacts = telegram.getTelegramContacts();
         if (contacts.isEmpty()) {
-            contactsText.setText("هنوز مخاطبی ثبت نشده است.");
+            contactsText.setText("هنوز کاربر جدیدی با شماره تلفن قابل مشاهده ثبت نشده است.");
             return;
         }
 
