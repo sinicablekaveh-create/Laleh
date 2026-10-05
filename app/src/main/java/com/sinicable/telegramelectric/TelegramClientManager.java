@@ -792,12 +792,13 @@ public final class TelegramClientManager {
                 cached.title = update.title;
             }
 
+            String title = cleanLabel(update.title, String.valueOf(update.chatId));
             GroupInfo target = targetGroups.get(update.chatId);
-            if (target != null) {
+            if (target != null && !target.title.equals(title)) {
                 targetGroups.put(update.chatId, new GroupInfo(
                         target.number,
                         target.id,
-                        update.title,
+                        title,
                         target.link,
                         target.memberCount,
                         target.status,
@@ -808,11 +809,11 @@ public final class TelegramClientManager {
             }
 
             GroupInfo found = foundGroups.get(update.chatId);
-            if (found != null) {
+            if (found != null && !found.title.equals(title)) {
                 foundGroups.put(update.chatId, new GroupInfo(
                         found.number,
                         found.id,
-                        update.title,
+                        title,
                         found.link,
                         found.memberCount,
                         found.status,

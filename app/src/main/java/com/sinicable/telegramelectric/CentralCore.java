@@ -54,6 +54,7 @@ public final class CentralCore {
     private boolean searchInFlight;
     private String message;
     private String photoPath;
+    private long photoRevision;
     private ScheduleMode mode;
     private long sentCount;
     private long windowEndsAt;
@@ -120,6 +121,7 @@ public final class CentralCore {
     }
 
     public synchronized void setPhotoPath(String value) {
+        photoRevision++;
         photoPath = value == null ? "" : value.trim();
         prefs.edit().putString(KEY_PHOTO_PATH, photoPath).apply();
         listener.onDataChanged();
@@ -129,11 +131,16 @@ public final class CentralCore {
         return photoPath == null ? "" : photoPath;
     }
 
+    public synchronized long getPhotoRevision() {
+        return photoRevision;
+    }
+
     public synchronized boolean hasPhoto() {
         return PhotoMessageStore.exists(photoPath);
     }
 
     public synchronized void clearPhoto(Context context) {
+        photoRevision++;
         String old = photoPath;
         photoPath = "";
         prefs.edit().remove(KEY_PHOTO_PATH).apply();

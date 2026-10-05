@@ -29,9 +29,11 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.OutputStream;
+import java.io.File;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.FutureTask;
 
 public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_FILE = 7001;
@@ -64,6 +66,7 @@ public final class MainActivity extends Activity {
     private CheckBox backgroundRunCheck;
     private volatile boolean autoLearnEnabled = true;
     private final ExecutorService fileExecutor = Executors.newSingleThreadExecutor();
+    private long latestPhotoRequest;
 
     private ExportFileWriter.EntityType pendingExportEntity;
     private ExportFileWriter.Format pendingExportFormat;
@@ -522,15 +525,38 @@ public final class MainActivity extends Activity {
         if (uri == null || corePanel == null) return;
         final Context appContext = getApplicationContext();
         final CentralCore core = corePanel.getCore();
+        final long request = ++latestPhotoRequest;
+        final long photoRevision = core.getPhotoRevision();
         Toast.makeText(this, "در حال ذخیره عکس...", Toast.LENGTH_SHORT).show();
         fileExecutor.execute(() -> {
+            String stagedPath = null;
+            boolean selected = false;
             try {
-                String savedPath = PhotoMessageStore.copyIntoApp(appContext, uri);
-                core.setPhotoPath(savedPath);
-                PhotoMessageStore.clear(appContext, savedPath);
+                stagedPath = PhotoMessageStore.copyIntoApp(appContext, uri);
+                final String savedPath = stagedPath;
+                FutureTask<String> selection = new FutureTask<>(() -> {
+                    if (isFinishing() || isDestroyed()
+                            || request != latestPhotoRequest
+                            || core.getPhotoRevision() != photoRevision) return null;
+                    String previousPath = core.getPhotoPath();
+                    core.setPhotoPath(savedPath);
+                    return previousPath;
+                });
+                runOnUiThread(selection);
+                String previousPath = selection.get();
+                if (previousPath == null) return;
+                selected = true;
+                if (!previousPath.isEmpty() && !previousPath.equals(savedPath)) {
+                    new File(previousPath).delete();
+                }
                 showFileResult("عکس پیام ذخیره شد و همراه متن ارسال می‌شود.");
             } catch (Exception error) {
+                if (error instanceof InterruptedException) Thread.currentThread().interrupt();
                 showFileResult("ذخیره عکس ناموفق بود: " + fileErrorMessage(error));
+            } finally {
+                if (!selected && stagedPath != null && !stagedPath.equals(core.getPhotoPath())) {
+                    new File(stagedPath).delete();
+                }
             }
         });
     }
