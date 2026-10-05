@@ -40,6 +40,7 @@ public final class TelegramClientManager {
     private static final String KEY_GROUPS_JSON = "groups_json";
     private static final String KEY_OBSERVED_USERS_JSON = "observed_users_json";
     private static final String LEGACY_CONTACTS_JSON = "contacts_json";
+    private static final int ACCOUNT_CHAT_LOAD_LIMIT = 100;
 
     private static final Object TDJNI_LOCK = new Object();
     private static volatile boolean tdjniLoaded = false;
@@ -71,6 +72,8 @@ public final class TelegramClientManager {
     private final java.util.concurrent.atomic.AtomicBoolean persistDirty =
             new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean persistRunning =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean accountChatsLoading =
             new java.util.concurrent.atomic.AtomicBoolean(false);
     private int nextGroupNumber = 1;
     private int nextContactNumber = 1;
@@ -236,6 +239,7 @@ public final class TelegramClientManager {
         Client local = client;
         client = null;
         connectionReady = false;
+        accountChatsLoading.set(false);
 
         if (local != null) {
             try {
@@ -539,6 +543,75 @@ public final class TelegramClientManager {
                 callback.onResult(true, newItems, validItems, "جستجوی گروه‌های موجود در حساب کامل شد.");
             }
         });
+    }
+
+    private void loadAccountChats() {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) return;
+        if (!accountChatsLoading.compareAndSet(false, true)) return;
+        requestNextAccountChatBatch(local);
+    }
+
+    private void requestNextAccountChatBatch(Client expectedClient) {
+        if (expectedClient == null || client != expectedClient || currentStep != AuthStep.READY) {
+            accountChatsLoading.set(false);
+            return;
+        }
+
+        final TdApi.Function request;
+        try {
+            request = buildLoadChatsFunction(ACCOUNT_CHAT_LOAD_LIMIT);
+        } catch (Throwable error) {
+            accountChatsLoading.set(false);
+            listener.onError("ساخت درخواست LoadChats ناموفق بود: " + safeMessage(error));
+            return;
+        }
+
+        expectedClient.send(request, result -> {
+            if (client != expectedClient || currentStep != AuthStep.READY) {
+                accountChatsLoading.set(false);
+                return;
+            }
+
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                accountChatsLoading.set(false);
+                if (error.code != 404) {
+                    listener.onError("LoadChats " + error.code + ": " + error.message);
+                } else {
+                    listener.onAuthStep(
+                            currentStep,
+                            "گروه‌های حساب بارگذاری شدند؛ فقط گروه‌هایی که عضو هستید نمایش داده می‌شوند."
+                    );
+                }
+                return;
+            }
+
+            requestNextAccountChatBatch(expectedClient);
+        });
+    }
+
+    private static TdApi.Function buildLoadChatsFunction(int limit) throws Exception {
+        Class<?> chatListMainClass =
+                Class.forName("org.drinkless.tdlib.TdApi$ChatListMain");
+        Object chatList = chatListMainClass.getDeclaredConstructor().newInstance();
+
+        Class<?> loadChatsClass =
+                Class.forName("org.drinkless.tdlib.TdApi$LoadChats");
+
+        for (Constructor<?> constructor : loadChatsClass.getConstructors()) {
+            Class<?>[] params = constructor.getParameterTypes();
+            if (params.length == 2
+                    && params[0].isAssignableFrom(chatListMainClass)
+                    && (params[1] == int.class || params[1] == Integer.class)) {
+                return (TdApi.Function) constructor.newInstance(chatList, limit);
+            }
+        }
+
+        Object request = loadChatsClass.getDeclaredConstructor().newInstance();
+        setField(request, "chatList", chatList);
+        setField(request, "limit", limit);
+        return (TdApi.Function) request;
     }
 
     public void setProxyFromLink(String link) {
@@ -881,8 +954,7 @@ public final class TelegramClientManager {
     private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
         Object statusObject = readObjectField(meta, "status");
         boolean joined = isJoinedGroupStatus(statusObject);
-        boolean canSend = canSendFromStatus(statusObject)
-                && chatAllowsBasicMessages(chat, statusObject);
+        boolean canSend = joined && chatAllowsBasicMessages(chat, statusObject);
 
         if (!joined) {
             if (targetGroups.remove(chat.id) != null) {
@@ -1116,14 +1188,39 @@ public final class TelegramClientManager {
                 || status instanceof TdApi.ChatMemberStatusMember;
     }
 
-    private static boolean canSendFromStatus(Object status) {
-        return status instanceof TdApi.ChatMemberStatusAdministrator
-                || (status instanceof TdApi.ChatMemberStatusCreator
-                    && ((TdApi.ChatMemberStatusCreator) status).isMember);
+    private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
+        if (status instanceof TdApi.ChatMemberStatusAdministrator) {
+            return true;
+        }
+        if (status instanceof TdApi.ChatMemberStatusCreator) {
+            return ((TdApi.ChatMemberStatusCreator) status).isMember;
+        }
+        if (status instanceof TdApi.ChatMemberStatusRestricted) {
+            if (!((TdApi.ChatMemberStatusRestricted) status).isMember) return false;
+            Object permissions = readObjectField(status, "permissions");
+            return readSendPermission(permissions, false);
+        }
+        if (status instanceof TdApi.ChatMemberStatusMember) {
+            Object permissions = readObjectField(chat, "permissions");
+            return readSendPermission(permissions, true);
+        }
+        return false;
     }
 
-    private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
-        return canSendFromStatus(status);
+    private static boolean readSendPermission(Object permissions, boolean fallback) {
+        if (permissions == null) return fallback;
+
+        Object current = readObjectField(permissions, "canSendBasicMessages");
+        if (current instanceof Boolean) {
+            return (Boolean) current;
+        }
+
+        Object legacy = readObjectField(permissions, "canSendMessages");
+        if (legacy instanceof Boolean) {
+            return (Boolean) legacy;
+        }
+
+        return fallback;
     }
 
     private static String describeMemberStatus(Object status) {
@@ -1209,7 +1306,8 @@ public final class TelegramClientManager {
             listener.onAuthStep(currentStep, "این شماره نیاز به ثبت‌نام حساب جدید دارد؛ نسخه فعلی برای ورود حساب موجود ساخته شده است.");
         } else if (state instanceof TdApi.AuthorizationStateReady) {
             currentStep = AuthStep.READY;
-            listener.onAuthStep(currentStep, "متصل شد. بانک واژه می‌تواند از پیام‌های مرتبط یاد بگیرد.");
+            listener.onAuthStep(currentStep, "متصل شد. در حال بارگذاری گروه‌های حساب...");
+            loadAccountChats();
         } else if (state instanceof TdApi.AuthorizationStateLoggingOut
                 || state instanceof TdApi.AuthorizationStateClosing) {
             currentStep = AuthStep.LOGGING_OUT;
@@ -1267,6 +1365,7 @@ public final class TelegramClientManager {
         currentStep = AuthStep.IDLE;
         connectionReady = false;
         connectionStatusMessage = "تلگرام: اتصال بسته است.";
+        accountChatsLoading.set(false);
         listener.onConnectionStatus(connectionStatusMessage, false);
         apiHash = "";
 
