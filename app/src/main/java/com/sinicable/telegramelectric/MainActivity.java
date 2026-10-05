@@ -4,10 +4,12 @@ import android.app.Activity;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Typeface;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
+import android.net.Uri;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputType;
@@ -22,9 +24,12 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.OutputStream;
 import java.util.List;
 
 public final class MainActivity extends Activity {
+    private static final int REQUEST_EXPORT_FILE = 7001;
+
     private TelegramClientManager telegram;
     private WordBank wordBank;
     private CentralCorePanel corePanel;
@@ -46,6 +51,11 @@ public final class MainActivity extends Activity {
     private Button phoneButton;
     private Button authButton;
     private volatile boolean autoLearnEnabled = true;
+
+    private ExportFileWriter.EntityType pendingExportEntity;
+    private ExportFileWriter.Format pendingExportFormat;
+    private int pendingExportStart;
+    private int pendingExportEnd;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -242,6 +252,10 @@ public final class MainActivity extends Activity {
 
         space(root, 22);
         corePanel = new CentralCorePanel(this, telegram, wordBank);
+        corePanel.setExportRequestListener(
+                (entityType, format, startNumber, endNumber) ->
+                        startExport(entityType, format, startNumber, endNumber)
+        );
         root.addView(corePanel, matchWrap());
 
         space(root, 22);
@@ -307,6 +321,87 @@ public final class MainActivity extends Activity {
         return scroll;
     }
 
+
+    private void startExport(
+            ExportFileWriter.EntityType entityType,
+            ExportFileWriter.Format format,
+            int startNumber,
+            int endNumber
+    ) {
+        pendingExportEntity = entityType;
+        pendingExportFormat = format;
+        pendingExportStart = startNumber;
+        pendingExportEnd = endNumber;
+
+        String kind = entityType == ExportFileWriter.EntityType.CONTACTS
+                ? "contacts"
+                : "groups";
+        String extension = format == ExportFileWriter.Format.XLSX ? "xlsx" : "txt";
+        String mime = format == ExportFileWriter.Format.XLSX
+                ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                : "text/plain";
+
+        String fileName = "telegram-electric-" + kind + "-"
+                + startNumber + "-" + endNumber + "." + extension;
+
+        Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType(mime);
+        intent.putExtra(Intent.EXTRA_TITLE, fileName);
+
+        startActivityForResult(intent, REQUEST_EXPORT_FILE);
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode != REQUEST_EXPORT_FILE || resultCode != RESULT_OK || data == null) {
+            return;
+        }
+
+        Uri uri = data.getData();
+        if (uri == null || pendingExportEntity == null || pendingExportFormat == null) {
+            return;
+        }
+
+        try (OutputStream output = getContentResolver().openOutputStream(uri, "w")) {
+            if (output == null) {
+                throw new IllegalStateException("فایل خروجی باز نشد.");
+            }
+
+            ExportFileWriter.write(
+                    output,
+                    telegram,
+                    pendingExportEntity,
+                    pendingExportFormat,
+                    pendingExportStart,
+                    pendingExportEnd
+            );
+
+            Toast.makeText(
+                    this,
+                    "فایل با موفقیت ذخیره شد.",
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Throwable error) {
+            String message = error.getMessage();
+            if (message == null || message.trim().isEmpty()) {
+                message = error.getClass().getSimpleName();
+            }
+
+            Toast.makeText(
+                    this,
+                    "ذخیره فایل ناموفق بود: " + message,
+                    Toast.LENGTH_LONG
+            ).show();
+        } finally {
+            pendingExportEntity = null;
+            pendingExportFormat = null;
+            pendingExportStart = 0;
+            pendingExportEnd = 0;
+        }
+    }
 
     private void checkInternetConnection() {
         ConnectivityManager manager =
