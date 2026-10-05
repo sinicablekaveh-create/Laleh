@@ -43,7 +43,7 @@ public final class CentralCore {
     private final TelegramClientManager telegram;
     private final WordBank wordBank;
     private final SmartSearchQueue smartQueue;
-    private final Listener listener;
+    private volatile Listener listener;
     private final SharedPreferences prefs;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
@@ -98,6 +98,12 @@ public final class CentralCore {
 
         if (enabled) {
             handler.postDelayed(sendTick, 5_000L);
+        }
+    }
+
+    public void setListener(Listener listener) {
+        if (listener != null) {
+            this.listener = listener;
         }
     }
 
