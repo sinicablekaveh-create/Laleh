@@ -56,6 +56,7 @@ public final class MainActivity extends Activity {
     private EditText authInput;
     private EditText searchInput;
     private EditText addWordInput;
+    private Button connectButton;
     private Button phoneButton;
     private Button authButton;
     private CheckBox backgroundRunCheck;
@@ -171,7 +172,7 @@ public final class MainActivity extends Activity {
         apiHashInput.setTextDirection(View.TEXT_DIRECTION_LTR);
         root.addView(apiHashInput, matchWrap());
 
-        Button connectButton = button("شروع اتصال و ذخیره ورود");
+        connectButton = button("شروع اتصال و ذخیره ورود");
         connectButton.setOnClickListener(v -> {
             String idText = apiIdInput.getText().toString().trim();
             String hash = apiHashInput.getText().toString().trim();
@@ -182,6 +183,8 @@ public final class MainActivity extends Activity {
                     return;
                 }
                 authSessionStore.save(apiId, hash);
+                connectButton.setEnabled(false);
+                statusText.setText("در حال راه‌اندازی تلگرام...");
                 telegram.start(apiId, hash);
             } catch (NumberFormatException e) {
                 statusText.setText("خطا: API ID باید عدد باشد.");
@@ -391,9 +394,23 @@ public final class MainActivity extends Activity {
             }
 
             @Override
-            public void onRecipientsChanged() {
+            public void onTargetGroupChanged(long chatId) {
                 runOnUiThread(() -> {
-                    if (corePanel != null) corePanel.refreshAll();
+                    if (corePanel != null) corePanel.onTargetGroupChanged(chatId);
+                });
+            }
+
+            @Override
+            public void onFoundGroupsChanged() {
+                runOnUiThread(() -> {
+                    if (corePanel != null) corePanel.onFoundGroupsChanged();
+                });
+            }
+
+            @Override
+            public void onObservedUsersChanged() {
+                runOnUiThread(() -> {
+                    if (corePanel != null) corePanel.onObservedUsersChanged();
                 });
             }
 
@@ -401,6 +418,7 @@ public final class MainActivity extends Activity {
             public void onError(String message) {
                 runOnUiThread(() -> {
                     if (statusText != null) statusText.setText("خطا: " + message);
+                    if (connectButton != null) connectButton.setEnabled(true);
                     Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
                 });
             }
@@ -441,7 +459,15 @@ public final class MainActivity extends Activity {
             }
 
             @Override
-            public void onRecipientsChanged() {
+            public void onTargetGroupChanged(long chatId) {
+            }
+
+            @Override
+            public void onFoundGroupsChanged() {
+            }
+
+            @Override
+            public void onObservedUsersChanged() {
             }
 
             @Override
@@ -678,6 +704,9 @@ public final class MainActivity extends Activity {
 
     private void updateAuthUi(TelegramClientManager.AuthStep step, String message) {
         statusText.setText(message);
+        if (connectButton != null) {
+            connectButton.setEnabled(step != TelegramClientManager.AuthStep.WAIT_PARAMETERS);
+        }
         phoneButton.setEnabled(step == TelegramClientManager.AuthStep.PHONE);
 
         boolean needsAuth = step == TelegramClientManager.AuthStep.CODE
