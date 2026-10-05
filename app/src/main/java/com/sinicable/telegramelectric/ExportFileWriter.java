@@ -69,7 +69,7 @@ final class ExportFileWriter {
         );
 
         if (entityType == EntityType.CONTACTS) {
-            writer.write("مخاطبین Telegram Electric — بازه " + start + " تا " + end);
+            writer.write("کاربران دارای شماره Telegram Electric — بازه " + start + " تا " + end);
             writer.newLine();
             writer.newLine();
 
@@ -77,7 +77,7 @@ final class ExportFileWriter {
                 if (item.number < start || item.number > end) continue;
                 writer.write("شماره رکورد: " + item.number);
                 writer.newLine();
-                writer.write("اسم مخاطب: " + item.name);
+                writer.write("اسم کاربر: " + item.name);
                 writer.newLine();
                 writer.write("شماره تلفن: " + item.phone);
                 writer.newLine();
@@ -119,7 +119,7 @@ final class ExportFileWriter {
         List<List<String>> rows = new ArrayList<>();
 
         if (entityType == EntityType.CONTACTS) {
-            rows.add(row("شماره", "اسم مخاطب", "شماره تلفن"));
+            rows.add(row("شماره", "اسم کاربر", "شماره تلفن"));
             for (TelegramClientManager.ContactInfo item : telegram.getTelegramContacts()) {
                 if (item.number < start || item.number > end) continue;
                 rows.add(row(
