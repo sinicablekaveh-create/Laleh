@@ -11,6 +11,7 @@ import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -39,8 +40,8 @@ public class PhotoMessageStoreTest {
 
     @Test
     public void unreadableSelectionKeepsPreviousPhoto() throws Exception {
-        when(resolver.openInputStream(uri)).thenThrow(new IOException("cannot open selection"));
-        assertThrows(IOException.class, () -> PhotoMessageStore.copyIntoApp(context, uri));
+        when(resolver.openInputStream(uri)).thenThrow(new FileNotFoundException("cannot open selection"));
+        assertThrows(FileNotFoundException.class, () -> PhotoMessageStore.copyIntoApp(context, uri));
         assertArrayEquals(new byte[] {10, 20, 30}, Files.readAllBytes(oldPhoto.toPath()));
     }
 
