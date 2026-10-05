@@ -156,11 +156,6 @@ public final class CentralCore {
         mode = next;
         prefs.edit().putString(KEY_MODE, mode.name()).apply();
 
-        if (enabled) {
-            handler.removeCallbacks(sendTick);
-            handler.removeCallbacks(discoveryTick);
-            if (!sendInFlight) handler.postDelayed(sendTick, 1_000L);
-        }
     }
 
     public synchronized ScheduleMode getMode() {
@@ -207,11 +202,14 @@ public final class CentralCore {
     }
 
     public synchronized boolean start() {
-        if (!enabled) {
-            runGeneration++;
-            searchInFlight = false;
-            sendInFlight = false;
+        if (enabled) {
+            listener.onStatus("تنظیمات ثبت شد؛ ارسال در زمان بعدی مجاز انجام می‌شود.");
+            listener.onDataChanged();
+            return true;
         }
+        runGeneration++;
+        searchInFlight = false;
+        sendInFlight = false;
         enabled = true;
         prefs.edit().putBoolean(KEY_ENABLED, true).apply();
         handler.removeCallbacks(sendTick);

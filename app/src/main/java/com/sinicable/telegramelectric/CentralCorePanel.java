@@ -406,9 +406,19 @@ public final class CentralCorePanel extends LinearLayout {
                         + (group.memberCount > 0 ? group.memberCount + " عضو" : "تعداد عضو نامشخص")
                         + " — " + group.status
         );
-        check.setEnabled(allowed);
+        check.setEnabled(allowed || core.isGroupSelected(chatId));
         check.setChecked(core.isGroupSelected(group.id));
-        check.setOnCheckedChangeListener((buttonView, isChecked) -> core.setGroupSelected(chatId, isChecked));
+        check.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            TelegramClientManager.GroupInfo current = telegram.getTargetGroup(chatId);
+            boolean allowedNow = current != null && (showingPhotoTargets ? current.canSendPhotos : current.canSend);
+            if (isChecked && !allowedNow) {
+                buttonView.setChecked(false);
+                statusText.setText("این گروه برای پیام انتخاب‌شده اجازهٔ ارسال ندارد.");
+                return;
+            }
+            core.setGroupSelected(chatId, isChecked);
+            buttonView.setEnabled(isChecked || allowedNow);
+        });
 
         TextView note = targetNotes.remove(chatId);
         if (note != null) targetContainer.removeView(note);
