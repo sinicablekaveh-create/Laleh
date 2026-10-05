@@ -92,6 +92,18 @@ public final class TelegramClientManager {
         GroupInfo(long id, String title, String link, int memberCount, String status, boolean canSend) {
             this(0, id, title, link, memberCount, status, canSend, false);
         }
+
+        GroupInfo(
+                long id,
+                String title,
+                String link,
+                int memberCount,
+                String status,
+                boolean canSend,
+                boolean discoveredBySearch
+        ) {
+            this(0, id, title, link, memberCount, status, canSend, discoveredBySearch);
+        }
     }
 
     public static final class ContactInfo {
