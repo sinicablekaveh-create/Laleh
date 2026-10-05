@@ -13,6 +13,8 @@ import java.util.Set;
 public final class WordBank {
     private static final String PREFS = "electrical_word_bank";
     private static final String KEY_WORDS = "words";
+    private static final String KEY_IRAN_SEED_VERSION = "iran_seed_version";
+    private static final int IRAN_SEED_VERSION = 1;
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "این", "اون", "آن", "برای", "با", "از", "به", "در", "رو", "را", "که", "یک",
@@ -48,10 +50,25 @@ public final class WordBank {
         Set<String> saved = prefs.getStringSet(KEY_WORDS, null);
         if (saved != null && !saved.isEmpty()) {
             words.addAll(new HashSet<>(saved));
-        } else {
-            for (String seed : SEED_WORDS) {
-                words.add(normalize(seed));
+        }
+
+        boolean changed = false;
+        for (String seed : SEED_WORDS) {
+            changed |= words.add(normalize(seed));
+        }
+
+        int installedSeedVersion = prefs.getInt(KEY_IRAN_SEED_VERSION, 0);
+        if (installedSeedVersion < IRAN_SEED_VERSION) {
+            for (String seed : IranElectricalSearchSeeds.build()) {
+                String normalized = normalize(seed);
+                if (isCandidate(normalized)) {
+                    changed |= words.add(normalized);
+                }
             }
+            prefs.edit().putInt(KEY_IRAN_SEED_VERSION, IRAN_SEED_VERSION).apply();
+        }
+
+        if (changed || saved == null || saved.isEmpty()) {
             persist();
         }
     }
@@ -136,7 +153,7 @@ public final class WordBank {
     }
 
     private boolean isCandidate(String word) {
-        if (word == null || word.length() < 2 || word.length() > 32) return false;
+        if (word == null || word.length() < 2 || word.length() > 96) return false;
         if (isStopWord(word)) return false;
         return !word.matches("\\d+");
     }
