@@ -119,6 +119,25 @@ public class TelegramClientManagerTest {
     }
 
     @Test
+    public void unchangedTitleDoesNotTriggerAnotherScreenUpdate() throws Exception {
+        TdApi.Chat chat = chat();
+        update(new TdApi.UpdateNewChat(chat));
+        inspect(chat, metadata(new TdApi.ChatMemberStatusAdministrator()));
+        Method store = TelegramClientManager.class.getDeclaredMethod(
+                "storeFoundGroup", TelegramClientManager.GroupInfo.class);
+        store.setAccessible(true);
+        store.invoke(manager, new TelegramClientManager.GroupInfo(
+                1, chat.id, chat.title, "https://t.me/electric", 40, "مدیر گروه ✅", false, true));
+        clearInvocations(listener);
+        TdApi.UpdateChatTitle title = new TdApi.UpdateChatTitle();
+        title.chatId = chat.id;
+        title.title = chat.title;
+        update(title);
+        verify(listener, never()).onTargetGroupChanged(anyLong());
+        verify(listener, never()).onFoundGroupsChanged();
+    }
+
+    @Test
     public void publicSearchReadsResultsFromCacheWithoutPerChatRequests() throws Exception {
         List<TdApi.Function> requests = prepareSearchTransport();
         int[] counts = {-1, -1};
