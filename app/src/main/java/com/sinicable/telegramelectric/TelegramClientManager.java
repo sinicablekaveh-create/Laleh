@@ -1290,11 +1290,14 @@ public final class TelegramClientManager {
 
     private synchronized void loadDiscovery() {
         boolean migrated = false;
+
         try {
             JSONArray groups = new JSONArray(discoveryPrefs.getString(KEY_GROUPS_JSON, "[]"));
             for (int i = 0; i < groups.length(); i++) {
                 JSONObject item = groups.optJSONObject(i);
                 if (item == null) continue;
+                if (!item.optBoolean("discoveredBySearch", false)) continue;
+
                 long id = item.optLong("id", 0L);
                 if (id == 0L) continue;
 
@@ -1312,18 +1315,22 @@ public final class TelegramClientManager {
                         item.optString("title", ""),
                         item.optString("link", ""),
                         item.optInt("memberCount", 0),
-                        item.optString("status", ""),
-                        item.optBoolean("canSend", false),
-                        item.optBoolean("discoveredBySearch", false)
+                        item.optString("status", "نتیجه جستجوی بانک کلمات"),
+                        false,
+                        true
                 ));
             }
 
-            JSONArray contacts = new JSONArray(discoveryPrefs.getString(KEY_CONTACTS_JSON, "[]"));
-            for (int i = 0; i < contacts.length(); i++) {
-                JSONObject item = contacts.optJSONObject(i);
+            JSONArray users = new JSONArray(
+                    discoveryPrefs.getString(KEY_OBSERVED_USERS_JSON, "[]")
+            );
+            for (int i = 0; i < users.length(); i++) {
+                JSONObject item = users.optJSONObject(i);
                 if (item == null) continue;
+
                 long id = item.optLong("id", 0L);
-                if (id == 0L) continue;
+                String phone = item.optString("phone", "").trim();
+                if (id == 0L || phone.isEmpty()) continue;
 
                 int number = item.optInt("number", 0);
                 if (number <= 0) {
@@ -1333,22 +1340,48 @@ public final class TelegramClientManager {
                     nextContactNumber = Math.max(nextContactNumber, number + 1);
                 }
 
-                telegramContacts.put(id, new ContactInfo(
+                observedUsers.put(id, new ContactInfo(
                         number,
                         id,
                         item.optString("name", ""),
-                        item.optString("phone", "")
+                        phone
                 ));
             }
 
+            if (discoveryPrefs.contains(LEGACY_CONTACTS_JSON)) {
+                discoveryPrefs.edit().remove(LEGACY_CONTACTS_JSON).apply();
+            }
+
             if (migrated) {
-                persistDiscovery();
+                schedulePersistDiscovery();
             }
         } catch (Throwable ignored) {
         }
     }
 
-    private synchronized void persistDiscovery() {
+    private void schedulePersistDiscovery() {
+        persistDirty.set(true);
+
+        if (!persistRunning.compareAndSet(false, true)) {
+            return;
+        }
+
+        storageExecutor.execute(() -> {
+            try {
+                do {
+                    persistDirty.set(false);
+                    writeDiscoverySnapshot();
+                } while (persistDirty.get());
+            } finally {
+                persistRunning.set(false);
+                if (persistDirty.get()) {
+                    schedulePersistDiscovery();
+                }
+            }
+        });
+    }
+
+    private void writeDiscoverySnapshot() {
         try {
             JSONArray groups = new JSONArray();
             for (GroupInfo info : foundGroups.values()) {
@@ -1359,24 +1392,27 @@ public final class TelegramClientManager {
                 item.put("link", info.link);
                 item.put("memberCount", info.memberCount);
                 item.put("status", info.status);
-                item.put("canSend", info.canSend);
-                item.put("discoveredBySearch", info.discoveredBySearch);
+                item.put("canSend", false);
+                item.put("discoveredBySearch", true);
                 groups.put(item);
             }
 
-            JSONArray contacts = new JSONArray();
-            for (ContactInfo info : telegramContacts.values()) {
+            JSONArray users = new JSONArray();
+            for (ContactInfo info : observedUsers.values()) {
+                if (info.phone == null || info.phone.trim().isEmpty()) continue;
+
                 JSONObject item = new JSONObject();
                 item.put("number", info.number);
                 item.put("id", info.id);
                 item.put("name", info.name);
                 item.put("phone", info.phone);
-                contacts.put(item);
+                users.put(item);
             }
 
             discoveryPrefs.edit()
                     .putString(KEY_GROUPS_JSON, groups.toString())
-                    .putString(KEY_CONTACTS_JSON, contacts.toString())
+                    .putString(KEY_OBSERVED_USERS_JSON, users.toString())
+                    .remove(LEGACY_CONTACTS_JSON)
                     .apply();
         } catch (Throwable ignored) {
         }
