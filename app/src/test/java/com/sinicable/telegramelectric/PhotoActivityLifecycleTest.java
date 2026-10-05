@@ -48,9 +48,9 @@ public class PhotoActivityLifecycleTest {
         File previous = new File(folder.getRoot(), "auto_message_photo.jpg");
         Files.write(previous.toPath(), new byte[] {10, 20, 30});
 
-        when(activity.getApplicationContext()).thenReturn(context);
-        when(activity.isDestroyed()).thenAnswer(call -> destroyed.get());
-        when(activity.isFinishing()).thenReturn(false);
+        doReturn(context).when(activity).getApplicationContext();
+        doAnswer(call -> destroyed.get()).when(activity).isDestroyed();
+        doReturn(false).when(activity).isFinishing();
         doAnswer(call -> { ui.add(call.getArgument(0)); return null; })
                 .when(activity).runOnUiThread(any(Runnable.class));
         when(context.getContentResolver()).thenReturn(resolver);
