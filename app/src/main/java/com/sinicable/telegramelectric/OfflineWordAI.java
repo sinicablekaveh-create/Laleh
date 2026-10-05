@@ -136,6 +136,28 @@ final class OfflineWordAI {
         return learnedWeights.size();
     }
 
+    synchronized int searchSignal(String rawWord) {
+        String word = normalize(rawWord);
+        return Math.max(0, Math.min(50, learnedWeights.getOrDefault(word, 0)));
+    }
+
+    synchronized void recordSearchFeedback(String rawQuery, int newGroups, int totalGroups) {
+        String query = normalize(rawQuery);
+        if (query.isEmpty()) return;
+
+        int current = learnedWeights.getOrDefault(query, 0);
+        int delta = Math.min(18, Math.max(0, newGroups) * 4)
+                + Math.min(6, Math.max(0, totalGroups))
+                - (newGroups <= 0 ? 2 : 0);
+
+        int updated = Math.max(0, Math.min(100, current + delta));
+        learnedWeights.put(query, updated);
+
+        Set<String> touched = new HashSet<>();
+        touched.add(query);
+        persistTouched(touched);
+    }
+
     private int morphologyBonus(String token, Set<String> knownWords) {
         int bonus = 0;
         for (String known : knownWords) {
