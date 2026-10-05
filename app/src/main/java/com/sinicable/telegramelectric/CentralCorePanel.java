@@ -17,6 +17,10 @@ import android.widget.TextView;
 import java.util.List;
 
 public final class CentralCorePanel extends LinearLayout {
+    public interface PhotoRequestListener {
+        void onChoosePhoto();
+    }
+
     public interface ExportRequestListener {
         void onExportRequested(
                 ExportFileWriter.EntityType entityType,
@@ -38,6 +42,8 @@ public final class CentralCorePanel extends LinearLayout {
     private final TextView contactsText;
     private final Button startButton;
     private final Button stopButton;
+    private final TextView photoStatusText;
+    private PhotoRequestListener photoRequestListener;
     private EditText exportStartInput;
     private EditText exportEndInput;
     private Spinner exportEntitySpinner;
@@ -109,6 +115,38 @@ public final class CentralCorePanel extends LinearLayout {
                 InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
         );
         addView(messageInput, full());
+
+        addView(label("عکس پیام (اختیاری)", 14, true), full());
+
+        photoStatusText = label("", 12, false);
+        addView(photoStatusText, full());
+
+        LinearLayout photoButtons = new LinearLayout(context);
+        photoButtons.setOrientation(HORIZONTAL);
+        photoButtons.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+
+        Button choosePhotoButton = new Button(context);
+        choosePhotoButton.setText("انتخاب عکس");
+        choosePhotoButton.setAllCaps(false);
+        choosePhotoButton.setOnClickListener(v -> {
+            if (photoRequestListener != null) {
+                photoRequestListener.onChoosePhoto();
+            } else {
+                statusText.setText("انتخاب عکس هنوز آماده نیست.");
+            }
+        });
+        photoButtons.addView(choosePhotoButton, weight());
+
+        Button clearPhotoButton = new Button(context);
+        clearPhotoButton.setText("حذف عکس");
+        clearPhotoButton.setAllCaps(false);
+        clearPhotoButton.setOnClickListener(v -> {
+            core.clearPhoto(getContext());
+            refreshPhotoStatus();
+        });
+        photoButtons.addView(clearPhotoButton, weight());
+
+        addView(photoButtons, full());
 
         addView(label("زمان‌بندی ارسال", 14, true), full());
 
@@ -244,6 +282,7 @@ public final class CentralCorePanel extends LinearLayout {
         }
 
         messageInput.setText(core.getMessage());
+        refreshPhotoStatus();
         scheduleSpinner.setSelection(scheduleIndex(core.getMode()));
 
         scheduleSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
@@ -277,6 +316,7 @@ public final class CentralCorePanel extends LinearLayout {
         refreshTargets();
         refreshGroups();
         refreshContacts();
+        refreshPhotoStatus();
         refreshSummary();
     }
 
@@ -290,6 +330,25 @@ public final class CentralCorePanel extends LinearLayout {
 
     public void setExportRequestListener(ExportRequestListener listener) {
         this.exportRequestListener = listener;
+    }
+
+    public void setPhotoRequestListener(PhotoRequestListener listener) {
+        this.photoRequestListener = listener;
+    }
+
+    public void setSelectedPhotoPath(String path) {
+        core.setPhotoPath(path);
+        refreshPhotoStatus();
+    }
+
+    private void refreshPhotoStatus() {
+        if (photoStatusText == null) return;
+
+        if (core.hasPhoto()) {
+            photoStatusText.setText("عکس انتخاب شده ✅ — همراه متن به گروه هدف ارسال می‌شود.");
+        } else {
+            photoStatusText.setText("بدون عکس — فقط متن ارسال می‌شود.");
+        }
     }
 
     private void requestExport(ExportFileWriter.Format format) {
