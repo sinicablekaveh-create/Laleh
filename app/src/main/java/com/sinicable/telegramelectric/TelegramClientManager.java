@@ -30,14 +30,20 @@ public final class TelegramClientManager {
         void onAuthStep(AuthStep step, String message);
         void onProxyStatus(String message);
         void onConnectionStatus(String message, boolean ready);
-        void onRecipientsChanged();
+        void onTargetGroupChanged(long chatId);
+        void onFoundGroupsChanged();
+        void onObservedUsersChanged();
         void onError(String message);
         void onMessageText(String text);
     }
 
     private static final String DISCOVERY_PREFS = "telegram_discovery";
     private static final String KEY_GROUPS_JSON = "groups_json";
-    private static final String KEY_CONTACTS_JSON = "contacts_json";
+    private static final String KEY_OBSERVED_USERS_JSON = "observed_users_json";
+    private static final String LEGACY_CONTACTS_JSON = "contacts_json";
+
+    private static final Object TDJNI_LOCK = new Object();
+    private static volatile boolean tdjniLoaded = false;
 
     private final Context context;
     private volatile Listener listener;
@@ -47,8 +53,21 @@ public final class TelegramClientManager {
     private int apiId;
     private String apiHash = "";
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
+    private final Map<Long, GroupInfo> targetGroups = new ConcurrentHashMap<>();
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
-    private final Map<Long, ContactInfo> telegramContacts = new ConcurrentHashMap<>();
+    private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
+    private final Map<Long, TdApi.User> userCache = new ConcurrentHashMap<>();
+    private final java.util.Set<Long> observedSenderIds = ConcurrentHashMap.newKeySet();
+    private final java.util.concurrent.ExecutorService runtimeExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.ExecutorService storageExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicBoolean starting =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean persistDirty =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean persistRunning =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
     private int nextGroupNumber = 1;
     private int nextContactNumber = 1;
     private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
@@ -189,25 +208,31 @@ public final class TelegramClientManager {
         return currentStep == AuthStep.READY && connectionReady && client != null;
     }
 
+    public List<GroupInfo> getTargetGroups() {
+        List<GroupInfo> result = new ArrayList<>(targetGroups.values());
+        result.sort(Comparator.comparing(info -> info.title.toLowerCase(java.util.Locale.ROOT)));
+        return result;
+    }
+
+    public GroupInfo getTargetGroup(long chatId) {
+        return targetGroups.get(chatId);
+    }
+
     public List<GroupInfo> getFoundGroups() {
-        List<GroupInfo> result = new ArrayList<>();
-        for (GroupInfo info : foundGroups.values()) {
-            if (info.discoveredBySearch) {
-                result.add(info);
-            }
-        }
+        List<GroupInfo> result = new ArrayList<>(foundGroups.values());
         result.sort(Comparator.comparingInt(info -> info.number));
         return result;
     }
 
     public List<ContactInfo> getTelegramContacts() {
-        List<ContactInfo> result = new ArrayList<>(telegramContacts.values());
+        List<ContactInfo> result = new ArrayList<>(observedUsers.values());
         result.sort(Comparator.comparingInt(info -> info.number));
         return result;
     }
 
     public GroupInfo getGroup(long chatId) {
-        return foundGroups.get(chatId);
+        GroupInfo target = targetGroups.get(chatId);
+        return target != null ? target : foundGroups.get(chatId);
     }
 
     public void sendPhotoToChat(
