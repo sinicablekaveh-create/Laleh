@@ -19,6 +19,7 @@ public final class TelegramClientManager {
     public interface Listener {
         void onAuthStep(AuthStep step, String message);
         void onProxyStatus(String message);
+        void onConnectionStatus(String message, boolean ready);
         void onError(String message);
         void onMessageText(String text);
     }
@@ -30,6 +31,8 @@ public final class TelegramClientManager {
     private int apiId;
     private String apiHash = "";
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
+    private volatile String connectionStatusMessage = "تلگرام هنوز شروع نشده است.";
+    private volatile boolean connectionReady = false;
 
     public TelegramClientManager(Context context, Listener listener) {
         this.context = context.getApplicationContext();
@@ -69,6 +72,10 @@ public final class TelegramClientManager {
 
     public AuthStep getCurrentStep() {
         return currentStep;
+    }
+
+    public void emitCurrentConnectionStatus() {
+        listener.onConnectionStatus(connectionStatusMessage, connectionReady);
     }
 
     public void setProxyFromLink(String link) {
@@ -274,6 +281,11 @@ public final class TelegramClientManager {
     }
 
     private void onUpdate(TdApi.Object object) {
+        if (object instanceof TdApi.UpdateConnectionState) {
+            handleConnectionState(((TdApi.UpdateConnectionState) object).state);
+            return;
+        }
+
         if (object instanceof TdApi.UpdateAuthorizationState) {
             handleAuthorizationState(((TdApi.UpdateAuthorizationState) object).authorizationState);
             return;
@@ -288,6 +300,31 @@ public final class TelegramClientManager {
                 }
             }
         }
+    }
+
+
+    private void handleConnectionState(TdApi.ConnectionState state) {
+        String message;
+        boolean ready = false;
+
+        if (state instanceof TdApi.ConnectionStateReady) {
+            message = "تلگرام: متصل ✅";
+            ready = true;
+        } else if (state instanceof TdApi.ConnectionStateConnectingToProxy) {
+            message = "تلگرام: در حال اتصال به پروکسی...";
+        } else if (state instanceof TdApi.ConnectionStateConnecting) {
+            message = "تلگرام: در حال اتصال...";
+        } else if (state instanceof TdApi.ConnectionStateUpdating) {
+            message = "تلگرام: متصل است، در حال همگام‌سازی...";
+        } else if (state instanceof TdApi.ConnectionStateWaitingForNetwork) {
+            message = "تلگرام: منتظر اینترنت ⛔";
+        } else {
+            message = "تلگرام: وضعیت اتصال نامشخص";
+        }
+
+        connectionStatusMessage = message;
+        connectionReady = ready;
+        listener.onConnectionStatus(message, ready);
     }
 
     private void handleAuthorizationState(TdApi.AuthorizationState state) {
@@ -351,7 +388,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.1.0";
+        request.applicationVersion = "1.3.0";
 
         sendAuth(request);
     }
@@ -375,6 +412,9 @@ public final class TelegramClientManager {
         Client local = client;
         client = null;
         currentStep = AuthStep.IDLE;
+        connectionReady = false;
+        connectionStatusMessage = "تلگرام: اتصال بسته است.";
+        listener.onConnectionStatus(connectionStatusMessage, false);
         apiHash = "";
 
         if (local != null) {
