@@ -33,7 +33,9 @@ public final class MainActivity extends Activity {
     private TelegramClientManager telegram;
     private WordBank wordBank;
     private CentralCorePanel corePanel;
+    private CentralCore sharedCore;
     private AuthSessionStore authSessionStore;
+    private BackgroundModeStore backgroundModeStore;
 
     private TextView statusText;
     private TextView proxyStatusText;
@@ -50,6 +52,7 @@ public final class MainActivity extends Activity {
     private EditText addWordInput;
     private Button phoneButton;
     private Button authButton;
+    private CheckBox backgroundRunCheck;
     private volatile boolean autoLearnEnabled = true;
 
     private ExportFileWriter.EntityType pendingExportEntity;
@@ -61,62 +64,44 @@ public final class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        wordBank = new WordBank(this);
         authSessionStore = new AuthSessionStore(this);
-        telegram = new TelegramClientManager(this, new TelegramClientManager.Listener() {
-            @Override
-            public void onAuthStep(TelegramClientManager.AuthStep step, String message) {
-                runOnUiThread(() -> updateAuthUi(step, message));
-            }
+        backgroundModeStore = new BackgroundModeStore(this);
 
-            @Override
-            public void onProxyStatus(String message) {
-                runOnUiThread(() -> proxyStatusText.setText(message));
-            }
+        TelegramClientManager.Listener uiListener = createTelegramUiListener();
+        BackgroundRuntime.Snapshot runtime = BackgroundRuntime.get();
 
-            @Override
-            public void onConnectionStatus(String message, boolean ready) {
-                runOnUiThread(() -> telegramConnectionText.setText(message));
-            }
-
-            @Override
-            public void onRecipientsChanged() {
-                runOnUiThread(() -> {
-                    if (corePanel != null) corePanel.refreshAll();
-                });
-            }
-
-            @Override
-            public void onError(String message) {
-                runOnUiThread(() -> {
-                    statusText.setText("خطا: " + message);
-                    Toast.makeText(MainActivity.this, message, Toast.LENGTH_LONG).show();
-                });
-            }
-
-            @Override
-            public void onMessageText(String text) {
-                if (!autoLearnEnabled) return;
-                int added = wordBank.learnFromMessage(text);
-                if (added > 0) {
-                    runOnUiThread(() -> {
-                        refreshWords(searchInput.getText().toString());
-                        countText.setText("بانک واژه: " + wordBank.size() + " واژه — " + added + " واژه جدید یاد گرفته شد");
-                    });
-                }
-            }
-        });
+        if (runtime != null) {
+            wordBank = runtime.wordBank;
+            telegram = runtime.telegram;
+            sharedCore = runtime.core;
+            telegram.setListener(uiListener);
+        } else {
+            wordBank = new WordBank(this);
+            telegram = new TelegramClientManager(this, uiListener);
+        }
 
         setContentView(buildUi());
         refreshWords("");
         checkInternetConnection();
 
-        if (authSessionStore.hasCredentials()) {
-            apiIdInput.setText(String.valueOf(authSessionStore.getApiId()));
-            statusText.setText("در حال بازیابی نشست ذخیره‌شده تلگرام...");
-            telegram.start(authSessionStore.getApiId(), authSessionStore.getApiHash());
+        if (BackgroundRuntime.get() == null) {
+            if (authSessionStore.hasCredentials()) {
+                apiIdInput.setText(String.valueOf(authSessionStore.getApiId()));
+                statusText.setText("در حال بازیابی نشست ذخیره‌شده تلگرام...");
+                telegram.start(authSessionStore.getApiId(), authSessionStore.getApiHash());
+            } else {
+                telegram.emitCurrentConnectionStatus();
+            }
         } else {
+            if (authSessionStore.hasCredentials()) {
+                apiIdInput.setText(String.valueOf(authSessionStore.getApiId()));
+            }
             telegram.emitCurrentConnectionStatus();
+        }
+
+        if (backgroundModeStore.isEnabled()) {
+            BackgroundRuntime.attach(telegram, wordBank, corePanel.getCore());
+            BackgroundCoreService.start(this);
         }
     }
 
