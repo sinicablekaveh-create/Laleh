@@ -34,6 +34,7 @@ import java.util.List;
 public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_FILE = 7001;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 7002;
+    private static final int REQUEST_PICK_MESSAGE_PHOTO = 7003;
 
     private TelegramClientManager telegram;
     private WordBank wordBank;
@@ -257,6 +258,7 @@ public final class MainActivity extends Activity {
                 (entityType, format, startNumber, endNumber) ->
                         startExport(entityType, format, startNumber, endNumber)
         );
+        corePanel.setPhotoRequestListener(this::chooseMessagePhoto);
         root.addView(corePanel, matchWrap());
 
         backgroundRunCheck = new CheckBox(this);
@@ -463,6 +465,38 @@ public final class MainActivity extends Activity {
         });
     }
 
+    private void chooseMessagePhoto() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivityForResult(intent, REQUEST_PICK_MESSAGE_PHOTO);
+    }
+
+    private void handleSelectedMessagePhoto(Uri uri) {
+        if (uri == null || corePanel == null) return;
+
+        try {
+            String savedPath = PhotoMessageStore.copyIntoApp(this, uri);
+            corePanel.setSelectedPhotoPath(savedPath);
+            Toast.makeText(
+                    this,
+                    "عکس پیام ذخیره شد و همراه متن ارسال می‌شود.",
+                    Toast.LENGTH_LONG
+            ).show();
+        } catch (Throwable error) {
+            String message = error.getMessage();
+            if (message == null || message.trim().isEmpty()) {
+                message = error.getClass().getSimpleName();
+            }
+            Toast.makeText(
+                    this,
+                    "ذخیره عکس ناموفق بود: " + message,
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
     private void startExport(
             ExportFileWriter.EntityType entityType,
             ExportFileWriter.Format format,
@@ -496,6 +530,13 @@ public final class MainActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == REQUEST_PICK_MESSAGE_PHOTO) {
+            if (resultCode == RESULT_OK && data != null) {
+                handleSelectedMessagePhoto(data.getData());
+            }
+            return;
+        }
 
         if (requestCode != REQUEST_EXPORT_FILE || resultCode != RESULT_OK || data == null) {
             return;
