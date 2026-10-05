@@ -39,6 +39,9 @@ android {
 
 dependencies {
     implementation("io.github.tdlib-android:core:0.1.1")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.mockito:mockito-core:5.14.2")
+    testImplementation("org.json:json:20240303")
 }
 
 
