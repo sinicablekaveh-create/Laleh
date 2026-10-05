@@ -66,6 +66,15 @@ public final class CentralCorePanel extends LinearLayout {
     };
 
     public CentralCorePanel(Context context, TelegramClientManager telegram, WordBank wordBank) {
+        this(context, telegram, wordBank, null);
+    }
+
+    public CentralCorePanel(
+            Context context,
+            TelegramClientManager telegram,
+            WordBank wordBank,
+            CentralCore sharedCore
+    ) {
         super(context);
         this.telegram = telegram;
 
@@ -210,22 +219,29 @@ public final class CentralCorePanel extends LinearLayout {
 
         addView(exportButtons, full());
 
-        core = new CentralCore(
-                context,
-                telegram,
-                wordBank,
-                new CentralCore.Listener() {
-                    @Override
-                    public void onStatus(String message) {
-                        post(() -> statusText.setText(message));
-                    }
+        CentralCore.Listener panelListener = new CentralCore.Listener() {
+            @Override
+            public void onStatus(String message) {
+                post(() -> statusText.setText(message));
+            }
 
-                    @Override
-                    public void onDataChanged() {
-                        post(CentralCorePanel.this::refreshSummary);
-                    }
-                }
-        );
+            @Override
+            public void onDataChanged() {
+                post(CentralCorePanel.this::refreshSummary);
+            }
+        };
+
+        if (sharedCore != null) {
+            core = sharedCore;
+            core.setListener(panelListener);
+        } else {
+            core = new CentralCore(
+                    context,
+                    telegram,
+                    wordBank,
+                    panelListener
+            );
+        }
 
         messageInput.setText(core.getMessage());
         scheduleSpinner.setSelection(scheduleIndex(core.getMode()));
@@ -266,6 +282,10 @@ public final class CentralCorePanel extends LinearLayout {
 
     public void shutdown() {
         core.shutdown();
+    }
+
+    public CentralCore getCore() {
+        return core;
     }
 
     public void setExportRequestListener(ExportRequestListener listener) {
@@ -395,7 +415,7 @@ public final class CentralCorePanel extends LinearLayout {
             TelegramClientManager.ContactInfo contact = contacts.get(i);
             out.append("شماره: ").append(contact.number).append('\n');
             out.append("اسم: ").append(contact.name).append('\n');
-            out.append("شماره: ").append(contact.phone).append('\n');
+            out.append("شماره تلفن: ").append(contact.phone).append('\n');
             out.append("────────────").append('\n');
         }
         contactsText.setText(out.toString());
