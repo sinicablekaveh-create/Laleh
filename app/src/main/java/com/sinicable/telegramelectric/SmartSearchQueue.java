@@ -63,7 +63,6 @@ public final class SmartSearchQueue {
         if (best != null) {
             State state = states.get(best);
             state.lastUsedAt = now;
-            persist();
         }
 
         return best;
@@ -86,6 +85,8 @@ public final class SmartSearchQueue {
 
         state.score = clamp(state.score + delta, 10, 1000);
         wordBank.recordSearchFeedback(query, newGroups, totalGroups);
+        // Persist the selection timestamp and its result together. Serializing in
+        // nextQuery() as well would cause two full JSON writes per search cycle.
         persist();
     }
 

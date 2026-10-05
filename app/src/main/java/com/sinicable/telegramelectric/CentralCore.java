@@ -37,9 +37,17 @@ public final class CentralCore {
     private static final String KEY_MODE = "mode";
     private static final String KEY_GROUPS = "selected_groups";
     private static final String KEY_SENT_COUNT = "sent_count";
+    private static final String KEY_RETRY_NOT_BEFORE = "retry_not_before";
 
     private static final long SEARCH_STEP_MS = 30_000L;
-    private static final Pattern FLOOD_WAIT = Pattern.compile("FLOOD_WAIT[_ ]?(\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TELEGRAM_WAIT = Pattern.compile(
+            "(?:FLOOD(?:_PREMIUM)?|SLOWMODE)_WAIT[_ ]?(\\d+)",
+            Pattern.CASE_INSENSITIVE
+    );
+    private static final Pattern RETRY_AFTER = Pattern.compile(
+            "RETRY\\s+AFTER\\s+(\\d+)",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final TelegramClientManager telegram;
     private final WordBank wordBank;
@@ -60,6 +68,7 @@ public final class CentralCore {
     private ScheduleMode mode;
     private long sentCount;
     private long windowEndsAt;
+    private long retryNotBefore;
     private int targetCursor;
 
     private final Runnable sendTick = new Runnable() {
@@ -92,6 +101,7 @@ public final class CentralCore {
         message = prefs.getString(KEY_MESSAGE, "");
         photoPath = prefs.getString(KEY_PHOTO_PATH, "");
         sentCount = prefs.getLong(KEY_SENT_COUNT, 0L);
+        retryNotBefore = prefs.getLong(KEY_RETRY_NOT_BEFORE, 0L);
 
         String savedMode = prefs.getString(KEY_MODE, ScheduleMode.EVERY_5_MINUTES.name());
         try {
@@ -243,9 +253,22 @@ public final class CentralCore {
 
     private void runSendCycle() {
         final long generation;
+        final long retryDelay;
         synchronized (this) {
             if (!enabled || sendInFlight) return;
             generation = runGeneration;
+            retryDelay = retryNotBefore - System.currentTimeMillis();
+            if (retryDelay <= 0L && retryNotBefore != 0L) {
+                retryNotBefore = 0L;
+                prefs.edit().remove(KEY_RETRY_NOT_BEFORE).apply();
+            }
+        }
+
+        if (retryDelay > 0L) {
+            listener.onStatus("تلگرام محدودیت موقت اعمال کرده؛ تا پایان زمان مجاز در انتظار می‌مانیم.");
+            handler.removeCallbacks(sendTick);
+            handler.postDelayed(sendTick, retryDelay);
+            return;
         }
 
         if (!telegram.isReadyForSending()) {
@@ -296,10 +319,14 @@ public final class CentralCore {
                 );
                 beginDiscoveryWindow(intervalMillis());
             } else {
-                long floodWait = parseFloodWaitMillis(resultMessage);
-                if (floodWait > 0L) {
+                long retryWait = parseRetryWaitMillis(resultMessage);
+                if (retryWait > 0L) {
                     listener.onStatus("تلگرام محدودیت موقت اعمال کرده؛ ارسال بعدی پس از زمان مجاز انجام می‌شود.");
-                    handler.postDelayed(sendTick, floodWait);
+                    synchronized (CentralCore.this) {
+                        retryNotBefore = safeDeadline(System.currentTimeMillis(), retryWait);
+                        prefs.edit().putLong(KEY_RETRY_NOT_BEFORE, retryNotBefore).apply();
+                    }
+                    handler.postDelayed(sendTick, retryWait);
                 } else {
                     listener.onStatus("ارسال ناموفق به «" + target.title + "»: " + resultMessage);
                     beginDiscoveryWindow(intervalMillis());
@@ -430,17 +457,28 @@ public final class CentralCore {
         }
     }
 
-    private static long parseFloodWaitMillis(String message) {
+    static long parseRetryWaitMillis(String message) {
         if (message == null) return 0L;
-        Matcher matcher = FLOOD_WAIT.matcher(message.toUpperCase(Locale.ROOT));
-        if (!matcher.find()) return 0L;
+        String normalized = message.toUpperCase(Locale.ROOT);
+        Matcher matcher = TELEGRAM_WAIT.matcher(normalized);
+        if (!matcher.find()) {
+            matcher = RETRY_AFTER.matcher(normalized);
+            if (!matcher.find()) return 0L;
+        }
 
         try {
             long seconds = Long.parseLong(matcher.group(1));
-            return Math.max(60_000L, seconds * 1000L);
-        } catch (Throwable ignored) {
+            if (seconds <= 0L) return 0L;
+            if (seconds >= Long.MAX_VALUE / 1000L) return Long.MAX_VALUE;
+            return seconds * 1000L;
+        } catch (NumberFormatException ignored) {
             return 0L;
         }
+    }
+
+    private static long safeDeadline(long now, long delay) {
+        if (delay >= Long.MAX_VALUE - now) return Long.MAX_VALUE;
+        return now + delay;
     }
 
     private synchronized void persistIds() {
