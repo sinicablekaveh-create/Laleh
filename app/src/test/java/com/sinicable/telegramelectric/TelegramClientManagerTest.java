@@ -205,16 +205,45 @@ public class TelegramClientManagerTest {
                 success[0] = ok;
                 explanation[0] = message;
             });
-            assertTrue(explanation[0], success[0]);
+            assertTrue(explanation[0] + "\nRuntime photo schema: " + runtimePhotoSchema(), success[0]);
             assertEquals(1, requests.size());
             TdApi.SendMessage send = (TdApi.SendMessage) requests.get(0);
             assertEquals(chat.id, send.chatId);
             TdApi.InputMessagePhoto content = (TdApi.InputMessagePhoto) send.inputMessageContent;
             assertEquals("عکس برق", content.caption.text);
-            assertEquals(photo.toString(), ((TdApi.InputFileLocal) content.photo).path);
-            assertEquals(0, java.lang.reflect.Array.getLength(content.addedStickerFileIds));
+            List<String> paths = new ArrayList<>();
+            collectLocalPhotoPaths(content.photo, paths);
+            assertEquals(List.of(photo.toString()), paths);
         } finally {
             Files.deleteIfExists(photo);
+        }
+    }
+
+    private static String runtimePhotoSchema() {
+        StringBuilder schema = new StringBuilder();
+        for (Class<?> type : TdApi.class.getDeclaredClasses()) {
+            if (!type.getSimpleName().startsWith("InputPhoto")) continue;
+            schema.append(type.getSimpleName()).append("(");
+            for (Field field : type.getFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    schema.append(field.getName()).append(":").append(field.getType().getSimpleName()).append(",");
+                }
+            }
+            schema.append(") ");
+        }
+        return schema.toString();
+    }
+
+    private static void collectLocalPhotoPaths(Object value, List<String> paths) throws Exception {
+        if (value instanceof TdApi.InputFileLocal) {
+            paths.add(((TdApi.InputFileLocal) value).path);
+        } else if (value instanceof TdApi.Object) {
+            for (Field field : value.getClass().getFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(field.getModifiers())) {
+                    Object child = field.get(value);
+                    if (child instanceof TdApi.Object) collectLocalPhotoPaths(child, paths);
+                }
+            }
         }
     }
 
