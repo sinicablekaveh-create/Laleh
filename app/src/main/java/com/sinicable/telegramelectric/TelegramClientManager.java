@@ -891,7 +891,8 @@ public final class TelegramClientManager {
 
     private void updateTargetFromMeta(TdApi.Chat chat, Object meta) {
         Object statusObject = readObjectField(meta, "status");
-        boolean canSend = canSendFromStatus(statusObject);
+        boolean canSend = canSendFromStatus(statusObject)
+                && chatAllowsBasicMessages(chat, statusObject);
 
         if (!canSend) {
             if (targetGroups.remove(chat.id) != null) {
@@ -1132,6 +1133,30 @@ public final class TelegramClientManager {
         }
 
         return false;
+    }
+
+    private static boolean chatAllowsBasicMessages(TdApi.Chat chat, Object status) {
+        if (chat == null || status == null) return false;
+
+        String statusName = status.getClass().getSimpleName();
+        if (statusName.contains("Creator") || statusName.contains("Administrator")) {
+            return true;
+        }
+
+        if (statusName.contains("Restricted")) {
+            return canSendFromStatus(status);
+        }
+
+        Object permissions = readObjectField(chat, "permissions");
+        if (permissions == null) return true;
+
+        Object basic = readObjectField(permissions, "canSendBasicMessages");
+        if (basic instanceof Boolean) return (Boolean) basic;
+
+        Object legacy = readObjectField(permissions, "canSendMessages");
+        if (legacy instanceof Boolean) return (Boolean) legacy;
+
+        return true;
     }
 
     private static String describeMemberStatus(Object status) {
