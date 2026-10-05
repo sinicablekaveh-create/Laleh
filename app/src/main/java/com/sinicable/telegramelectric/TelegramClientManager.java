@@ -211,6 +211,97 @@ public final class TelegramClientManager {
         });
     }
 
+    public void discoverPublicGroupsForReview(String query, DiscoveryCallback callback) {
+        Client local = client;
+        String clean = query == null ? "" : query.trim();
+        if (local == null || currentStep != AuthStep.READY) {
+            if (callback != null) callback.onResult(false, 0, 0, "تلگرام آماده جستجو نیست.");
+            return;
+        }
+        if (clean.length() < 2) {
+            if (callback != null) callback.onResult(false, 0, 0, "عبارت جستجو کوتاه است.");
+            return;
+        }
+
+        final TdApi.Function request;
+        try {
+            Class<?> type = Class.forName("org.drinkless.tdlib.TdApi$SearchPublicChats");
+            Object instance = null;
+
+            for (Constructor<?> constructor : type.getConstructors()) {
+                Class<?>[] params = constructor.getParameterTypes();
+                if (params.length == 1 && params[0] == String.class) {
+                    instance = constructor.newInstance(clean);
+                    break;
+                }
+            }
+
+            if (instance == null) {
+                instance = type.getDeclaredConstructor().newInstance();
+                if (hasField(type, "query")) {
+                    setField(instance, "query", clean);
+                } else if (hasField(type, "usernamePrefix")) {
+                    setField(instance, "usernamePrefix", clean);
+                } else {
+                    throw new IllegalStateException("فیلد جستجوی عمومی TDLib پیدا نشد.");
+                }
+            }
+
+            request = (TdApi.Function) instance;
+        } catch (Throwable error) {
+            if (callback != null) {
+                callback.onResult(false, 0, 0, "ساخت جستجوی عمومی ناموفق بود: " + safeMessage(error));
+            }
+            return;
+        }
+
+        local.send(request, result -> {
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                if (callback != null) {
+                    callback.onResult(false, 0, 0, "Telegram " + error.code + ": " + error.message);
+                }
+                return;
+            }
+
+            if (!(result instanceof TdApi.Chats)) {
+                if (callback != null) callback.onResult(true, 0, 0, "نتیجه گروهی پیدا نشد.");
+                return;
+            }
+
+            long[] ids = ((TdApi.Chats) result).chatIds;
+            if (ids == null || ids.length == 0) {
+                if (callback != null) callback.onResult(true, 0, 0, "نتیجه گروهی پیدا نشد.");
+                return;
+            }
+
+            AtomicInteger remaining = new AtomicInteger(ids.length);
+            AtomicInteger newItems = new AtomicInteger(0);
+            AtomicInteger validItems = new AtomicInteger(0);
+
+            for (long chatId : ids) {
+                local.send(new TdApi.GetChat(chatId), chatResult -> {
+                    if (chatResult instanceof TdApi.Chat && isGroupChat((TdApi.Chat) chatResult)) {
+                        TdApi.Chat chat = (TdApi.Chat) chatResult;
+                        validItems.incrementAndGet();
+                        boolean isNew = !foundGroups.containsKey(chat.id);
+                        captureKnownGroup(chat);
+                        if (isNew) newItems.incrementAndGet();
+                    }
+
+                    if (remaining.decrementAndGet() == 0 && callback != null) {
+                        callback.onResult(
+                                true,
+                                newItems.get(),
+                                validItems.get(),
+                                "جستجوی عمومی برای نمایش کامل شد."
+                        );
+                    }
+                });
+            }
+        });
+    }
+
     public void searchKnownGroups(String query, DiscoveryCallback callback) {
         Client local = client;
         String clean = query == null ? "" : query.trim();
