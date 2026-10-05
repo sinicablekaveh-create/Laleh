@@ -171,7 +171,13 @@ public final class CentralCore {
     }
 
     public synchronized int selectedGroupCount() {
-        return selectedGroups.size();
+        int count = 0;
+        for (TelegramClientManager.GroupInfo info : telegram.getFoundGroups()) {
+            if (selectedGroups.contains(info.id)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public synchronized long getSentCount() {
@@ -192,8 +198,8 @@ public final class CentralCore {
             return false;
         }
 
-        if (selectedGroups.isEmpty()) {
-            listener.onStatus("هسته مرکزی: حداقل یک گروه هدف انتخاب کنید.");
+        if (selectedGroupCount() <= 0) {
+            listener.onStatus("هسته مرکزی: حداقل یک گروه پیدا‌شده را به‌عنوان هدف انتخاب کنید.");
             return false;
         }
 
