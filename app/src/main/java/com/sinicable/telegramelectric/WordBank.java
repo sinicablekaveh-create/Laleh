@@ -117,6 +117,20 @@ public final class WordBank {
         return offlineAI.learnedSignalCount();
     }
 
+    public synchronized List<String> allWords() {
+        List<String> result = new java.util.ArrayList<>(words);
+        Collections.sort(result);
+        return result;
+    }
+
+    public synchronized int searchSignal(String word) {
+        return offlineAI.searchSignal(normalize(word));
+    }
+
+    public synchronized void recordSearchFeedback(String query, int newGroups, int totalGroups) {
+        offlineAI.recordSearchFeedback(normalize(query), newGroups, totalGroups);
+    }
+
     static boolean isStopWord(String value) {
         return STOP_WORDS.contains(normalize(value));
     }
