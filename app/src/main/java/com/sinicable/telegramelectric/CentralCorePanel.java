@@ -303,7 +303,10 @@ public final class CentralCorePanel extends LinearLayout {
         CentralCore.Listener panelListener = new CentralCore.Listener() {
             @Override
             public void onStatus(String message) {
-                post(() -> statusText.setText(message));
+                post(() -> {
+                    statusText.setText(core.getStatusMessage());
+                    refreshSummary();
+                });
             }
 
             @Override
@@ -555,8 +558,10 @@ public final class CentralCorePanel extends LinearLayout {
     }
 
     private void refreshSummary() {
+        CentralCore.RunState state = core.getRunState();
         summaryText.setText(
-                "وضعیت: " + (core.isEnabled() ? "فعال ✅" : "متوقف")
+                "وضعیت: " + (state == CentralCore.RunState.RUNNING ? "فعال ✅"
+                        : state == CentralCore.RunState.ERROR ? "خطا ⛔" : "متوقف")
                         + " | گروه هدف: " + core.selectedGroupCount()
                         + " | ارسال موفق: " + core.getSentCount()
                         + "\nگروه پیدا‌شده: " + telegram.getFoundGroupCount()

@@ -3,7 +3,8 @@ package com.sinicable.telegramelectric;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
-import android.os.Looper;
+import android.os.HandlerThread;
+import android.os.SystemClock;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -14,6 +15,8 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class CentralCore {
+    public enum RunState { STOPPED, RUNNING, ERROR }
+
     public enum ScheduleMode {
         EVERY_5_MINUTES,
         EVERY_10_MINUTES,
@@ -42,11 +45,21 @@ public final class CentralCore {
     private static final Pattern FLOOD_WAIT = Pattern.compile("FLOOD_WAIT[_ ]?(\\d+)", Pattern.CASE_INSENSITIVE);
 
     private final TelegramClientManager telegram;
-    private final WordBank wordBank;
-    private final SmartSearchQueue smartQueue;
+    // Only the worker initializes and uses the search queue. UI reads a snapshot.
+    private SmartSearchQueue smartQueue;
+    private final Runnable initializeQueue;
+    private volatile int cachedQueueSize;
     private volatile Listener listener;
     private final SharedPreferences prefs;
-    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final HandlerThread workerThread;
+    private final Handler handler;
+    private boolean closed;
+    private RunState runState = RunState.STOPPED;
+    private String statusMessage = "هسته مرکزی متوقف است.";
+    private static final Listener NO_LISTENER = new Listener() {
+        @Override public void onStatus(String message) { }
+        @Override public void onDataChanged() { }
+    };
 
     private final Set<Long> selectedGroups = new HashSet<>();
 
@@ -62,19 +75,8 @@ public final class CentralCore {
     private long windowEndsAt;
     private int targetCursor;
 
-    private final Runnable sendTick = new Runnable() {
-        @Override
-        public void run() {
-            runSendCycle();
-        }
-    };
-
-    private final Runnable discoveryTick = new Runnable() {
-        @Override
-        public void run() {
-            runDiscoveryStep();
-        }
-    };
+    private Runnable sendTick;
+    private Runnable discoveryTick;
 
     public CentralCore(
             Context context,
@@ -83,10 +85,20 @@ public final class CentralCore {
             Listener listener
     ) {
         this.telegram = telegram;
-        this.wordBank = wordBank;
-        this.listener = listener;
+        this.listener = listener == null ? NO_LISTENER : listener;
         this.prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
-        this.smartQueue = new SmartSearchQueue(context, wordBank);
+        Context application = context.getApplicationContext();
+        workerThread = new HandlerThread("telegram-central-core");
+        workerThread.start();
+        handler = new Handler(workerThread.getLooper());
+        cachedQueueSize = wordBank.size();
+        initializeQueue = () -> {
+            if (smartQueue == null) {
+                smartQueue = new SmartSearchQueue(application, wordBank);
+                cachedQueueSize = smartQueue.size();
+            }
+        };
+
 
         enabled = prefs.getBoolean(KEY_ENABLED, false);
         message = prefs.getString(KEY_MESSAGE, "");
@@ -102,15 +114,44 @@ public final class CentralCore {
 
         selectedGroups.addAll(parseIds(prefs.getStringSet(KEY_GROUPS, new HashSet<>())));
 
+        handler.post(() -> {
+            final long generation;
+            synchronized (this) {
+                if (closed) return;
+                generation = runGeneration;
+            }
+            try {
+                initializeQueue.run();
+                synchronized (this) { if (!closed) this.listener.onDataChanged(); }
+            } catch (RuntimeException error) {
+                fail(generation, error);
+            }
+        });
+
         if (enabled) {
-            handler.postDelayed(sendTick, 5_000L);
+            runState = RunState.RUNNING;
+            statusMessage = "هسته مرکزی: در حال بازیابی اجرا...";
+            scheduleSend(runGeneration, 5_000L);
         }
     }
 
-    public void setListener(Listener listener) {
-        if (listener != null) {
-            this.listener = listener;
-        }
+    public synchronized void setListener(Listener listener) {
+        this.listener = listener == null ? NO_LISTENER : listener;
+        this.listener.onStatus(statusMessage);
+        this.listener.onDataChanged();
+    }
+
+    public synchronized RunState getRunState() { return runState; }
+
+    public synchronized String getStatusMessage() { return statusMessage; }
+
+    private synchronized void reportStatus(String value) {
+        statusMessage = value;
+        listener.onStatus(value);
+    }
+
+    private synchronized void reportStatus(long generation, String value) {
+        if (isCurrentRun(generation)) reportStatus(value);
     }
 
     public synchronized void setMessage(String value) {
@@ -198,12 +239,13 @@ public final class CentralCore {
     }
 
     public synchronized int queueSize() {
-        return smartQueue.size();
+        return cachedQueueSize;
     }
 
     public synchronized boolean start() {
+        if (closed) return false;
         if (enabled) {
-            listener.onStatus("تنظیمات ثبت شد؛ ارسال در زمان بعدی مجاز انجام می‌شود.");
+            reportStatus("تنظیمات ثبت شد؛ ارسال در زمان بعدی مجاز انجام می‌شود.");
             listener.onDataChanged();
             return true;
         }
@@ -211,193 +253,270 @@ public final class CentralCore {
         searchInFlight = false;
         sendInFlight = false;
         enabled = true;
+        runState = RunState.RUNNING;
         prefs.edit().putBoolean(KEY_ENABLED, true).apply();
-        handler.removeCallbacks(sendTick);
-        handler.removeCallbacks(discoveryTick);
-        listener.onStatus("هسته مرکزی فعال شد؛ جستجو شروع می‌شود و ارسال فقط با متن و گروه هدف مجاز انجام می‌شود.");
-        if (!sendInFlight) handler.post(sendTick);
+        cancelTicks();
+        reportStatus("هسته مرکزی فعال شد؛ جستجو شروع می‌شود و ارسال فقط با متن و گروه هدف مجاز انجام می‌شود.");
+        scheduleSend(runGeneration, 0L);
         listener.onDataChanged();
         return true;
     }
 
     public synchronized void stop() {
+        if (closed) return;
         enabled = false;
+        runState = RunState.STOPPED;
         runGeneration++;
         searchInFlight = false;
         sendInFlight = false;
         windowEndsAt = 0L;
         prefs.edit().putBoolean(KEY_ENABLED, false).apply();
-        handler.removeCallbacks(sendTick);
-        handler.removeCallbacks(discoveryTick);
-        listener.onStatus("هسته مرکزی متوقف شد.");
+        cancelTicks();
+        reportStatus("هسته مرکزی متوقف شد.");
         listener.onDataChanged();
     }
 
     public synchronized void shutdown() {
+        if (closed) return;
+        closed = true;
+        enabled = false;
+        runState = RunState.STOPPED;
+        statusMessage = "هسته مرکزی متوقف شد.";
         runGeneration++;
-        handler.removeCallbacks(sendTick);
-        handler.removeCallbacks(discoveryTick);
+        cancelTicks();
         searchInFlight = false;
         sendInFlight = false;
+        listener = NO_LISTENER;
+        // Keep the saved enabled preference for Activity/process recreation.
+        workerThread.quitSafely();
     }
 
-    private void runSendCycle() {
-        final long generation;
+    private boolean isCurrentRun(long generation) {
+        return enabled && !closed && generation == runGeneration;
+    }
+
+    private Runnable guarded(long generation, Runnable action) {
+        return () -> {
+            synchronized (this) { if (!isCurrentRun(generation)) return; }
+            try {
+                initializeQueue.run();
+                synchronized (this) { if (!isCurrentRun(generation)) return; }
+                action.run();
+            } catch (RuntimeException error) {
+                fail(generation, error);
+            }
+        };
+    }
+
+    private synchronized void cancelTicks() {
+        if (sendTick != null) handler.removeCallbacks(sendTick);
+        if (discoveryTick != null) handler.removeCallbacks(discoveryTick);
+    }
+
+    private synchronized void scheduleSend(long generation, long delay) {
+        if (!isCurrentRun(generation)) return;
+        if (sendTick != null) handler.removeCallbacks(sendTick);
+        sendTick = guarded(generation, () -> runSendCycle(generation));
+        if (delay == 0L) handler.post(sendTick);
+        else handler.postDelayed(sendTick, delay);
+    }
+
+    private synchronized void scheduleDiscovery(long generation, long delay) {
+        if (!isCurrentRun(generation)) return;
+        if (discoveryTick != null) handler.removeCallbacks(discoveryTick);
+        discoveryTick = guarded(generation, () -> runDiscoveryStep(generation));
+        if (delay == 0L) handler.post(discoveryTick);
+        else handler.postDelayed(discoveryTick, delay);
+    }
+
+    private synchronized void postResult(long generation, Runnable action) {
+        if (isCurrentRun(generation)) handler.post(guarded(generation, action));
+    }
+
+    private synchronized void fail(long generation, RuntimeException error) {
+        if (closed || generation != runGeneration) return;
+        enabled = false;
+        runState = RunState.ERROR;
+        runGeneration++;
+        searchInFlight = false;
+        sendInFlight = false;
+        cancelTicks();
+        prefs.edit().putBoolean(KEY_ENABLED, false).apply();
+        reportStatus("خطای هسته مرکزی: " + error.getClass().getSimpleName()
+                + ". برای تلاش دوباره START را بزنید.");
+        listener.onDataChanged();
+    }
+
+    private void runSendCycle(long generation) {
         synchronized (this) {
-            if (!enabled || sendInFlight) return;
-            generation = runGeneration;
+            if (!isCurrentRun(generation) || sendInFlight) return;
         }
 
         if (!telegram.isReadyForSending()) {
-            listener.onStatus("هسته مرکزی: منتظر اتصال کامل تلگرام...");
-            handler.postDelayed(sendTick, 60_000L);
+            reportStatus(generation, "هسته مرکزی: منتظر اتصال کامل تلگرام...");
+            scheduleSend(generation, 60_000L);
             return;
         }
 
         if (getMessage().trim().isEmpty()) {
-            listener.onStatus("جستجوی هسته فعال است؛ برای ارسال، متن پیام را وارد و تنظیمات را ثبت کنید.");
-            beginDiscoveryWindow(60_000L);
+            reportStatus(generation, "جستجوی هسته فعال است؛ برای ارسال، متن پیام را وارد و تنظیمات را ثبت کنید.");
+            beginDiscoveryWindow(generation, 60_000L);
             return;
         }
 
         final List<TelegramClientManager.GroupInfo> targets = eligibleTargets();
         if (targets.isEmpty()) {
-            listener.onStatus("جستجوی هسته فعال است؛ برای ارسال، از «انتخاب گروه هدف» یک گروه دارای اجازهٔ ارسال انتخاب کنید.");
-            beginDiscoveryWindow(60_000L);
+            reportStatus(generation, "جستجوی هسته فعال است؛ برای ارسال، از «انتخاب گروه هدف» یک گروه دارای اجازهٔ ارسال انتخاب کنید.");
+            beginDiscoveryWindow(generation, 60_000L);
             return;
         }
 
         final TelegramClientManager.GroupInfo target;
         synchronized (this) {
+            if (!isCurrentRun(generation)) return;
             if (targetCursor >= targets.size()) targetCursor = 0;
             target = targets.get(targetCursor++);
             sendInFlight = true;
         }
 
-        listener.onStatus(
+        reportStatus(generation,
                 hasPhoto()
                         ? "در حال ارسال عکس و متن به «" + target.title + "» ..."
                         : "در حال ارسال خودکار به «" + target.title + "» ..."
         );
 
-        TelegramClientManager.SendCallback sendCallback = (success, resultMessage) -> handler.post(() -> {
+        TelegramClientManager.SendCallback sendCallback = (success, resultMessage) -> postResult(generation, () -> {
             synchronized (CentralCore.this) {
-                if (!enabled || generation != runGeneration) return;
+                if (!isCurrentRun(generation)) return;
                 sendInFlight = false;
             }
 
             if (success) {
                 synchronized (CentralCore.this) {
+                    if (!isCurrentRun(generation)) return;
                     sentCount++;
                     prefs.edit().putLong(KEY_SENT_COUNT, sentCount).apply();
                 }
-                listener.onStatus(
+                reportStatus(generation,
                         "ارسال موفق به «" + target.title + "». پنجره جستجو تا ارسال بعدی شروع شد."
                 );
-                beginDiscoveryWindow(intervalMillis());
+                beginDiscoveryWindow(generation, intervalMillis());
             } else {
                 long floodWait = parseFloodWaitMillis(resultMessage);
                 if (floodWait > 0L) {
-                    listener.onStatus("تلگرام محدودیت موقت اعمال کرده؛ ارسال بعدی پس از زمان مجاز انجام می‌شود.");
-                    handler.postDelayed(sendTick, floodWait);
+                    reportStatus(generation, "تلگرام محدودیت موقت اعمال کرده؛ ارسال بعدی پس از زمان مجاز انجام می‌شود.");
+                    scheduleSend(generation, floodWait);
                 } else {
-                    listener.onStatus("ارسال ناموفق به «" + target.title + "»: " + resultMessage);
-                    beginDiscoveryWindow(intervalMillis());
+                    reportStatus(generation, "ارسال ناموفق به «" + target.title + "»: " + resultMessage);
+                    beginDiscoveryWindow(generation, intervalMillis());
                 }
             }
             listener.onDataChanged();
         });
 
-        if (hasPhoto()) {
-            telegram.sendPhotoToChat(
-                    target.id,
-                    getPhotoPath(),
-                    getMessage(),
-                    sendCallback
-            );
-        } else {
-            telegram.sendTextToChat(target.id, getMessage(), sendCallback);
+        synchronized (this) {
+            if (!isCurrentRun(generation)) return;
+            if (!selectedGroups.contains(target.id)) {
+                beginDiscoveryWindow(generation, 60_000L);
+                sendInFlight = false;
+                return;
+            }
+            if (hasPhoto()) {
+                telegram.sendPhotoToChat(
+                        target.id,
+                        getPhotoPath(),
+                        getMessage(),
+                        sendCallback
+                );
+            } else {
+                telegram.sendTextToChat(target.id, getMessage(), sendCallback);
+            }
         }
     }
 
-    private synchronized void beginDiscoveryWindow(long duration) {
-        if (!enabled) return;
+    private synchronized void beginDiscoveryWindow(long generation, long duration) {
+        if (!isCurrentRun(generation)) return;
 
-        handler.removeCallbacks(sendTick);
-        handler.removeCallbacks(discoveryTick);
+        cancelTicks();
 
-        windowEndsAt = System.currentTimeMillis() + duration;
-        handler.post(discoveryTick);
-        handler.postDelayed(sendTick, duration);
+        windowEndsAt = SystemClock.elapsedRealtime() + duration;
+        scheduleDiscovery(generation, 0L);
+        scheduleSend(generation, duration);
     }
 
-    private void runDiscoveryStep() {
-        if (!isEnabled()) return;
-
+    private void runDiscoveryStep(long generation) {
         long remaining;
-        final long generation;
         synchronized (this) {
-            generation = runGeneration;
-            remaining = windowEndsAt - System.currentTimeMillis();
+            if (!isCurrentRun(generation)) return;
+            remaining = windowEndsAt - SystemClock.elapsedRealtime();
             if (remaining <= 10_000L) return;
             if (!telegram.isReadyForSending()) {
-                handler.postDelayed(discoveryTick, SEARCH_STEP_MS);
+                scheduleDiscovery(generation, SEARCH_STEP_MS);
                 return;
             }
             if (searchInFlight) {
-                handler.postDelayed(discoveryTick, 5_000L);
+                scheduleDiscovery(generation, 5_000L);
                 return;
             }
             searchInFlight = true;
         }
 
         String query = smartQueue.nextQuery();
+        cachedQueueSize = smartQueue.size();
         if (query == null || query.trim().isEmpty()) {
             synchronized (this) {
+                if (!isCurrentRun(generation)) return;
                 searchInFlight = false;
             }
-            handler.postDelayed(discoveryTick, SEARCH_STEP_MS);
+            scheduleDiscovery(generation, SEARCH_STEP_MS);
             return;
         }
 
         int score = smartQueue.scoreFor(query);
-        listener.onStatus("هسته مرکزی: جستجوی گروه‌های عمومی با «" + query + "» — امتیاز " + score);
+        reportStatus(generation, "هسته مرکزی: جستجوی گروه‌های عمومی با «" + query + "» — امتیاز " + score);
 
-        telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> handler.post(() -> {
-            synchronized (CentralCore.this) {
-                if (!enabled || generation != runGeneration) return;
-                searchInFlight = false;
-            }
+        synchronized (this) {
+            if (!isCurrentRun(generation)) return;
+            telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> postResult(generation, () -> {
+                synchronized (CentralCore.this) {
+                    if (!isCurrentRun(generation)) return;
+                    searchInFlight = false;
+                }
 
-            if (success) {
-                smartQueue.recordResult(query, newItems, totalItems);
-                listener.onStatus(
-                        "جستجو «" + query + "»: " + totalItems + " گروه مرتبط، "
-                                + newItems + " مورد جدید. صف دوباره امتیازدهی شد."
-                );
-            } else {
-                smartQueue.recordResult(query, 0, 0);
-                listener.onStatus("جستجوی «" + query + "» انجام نشد: " + resultMessage);
-            }
+                if (success) {
+                    smartQueue.recordResult(query, newItems, totalItems);
+                    reportStatus(generation,
+                            "جستجو «" + query + "»: " + totalItems + " گروه مرتبط، "
+                                    + newItems + " مورد جدید. صف دوباره امتیازدهی شد."
+                    );
+                } else {
+                    smartQueue.recordResult(query, 0, 0);
+                    reportStatus(generation, "جستجوی «" + query + "» انجام نشد: " + resultMessage);
+                }
 
-            listener.onDataChanged();
+                listener.onDataChanged();
 
-            long left;
-            synchronized (CentralCore.this) {
-                left = windowEndsAt - System.currentTimeMillis();
-            }
-            if (isEnabled() && left > 10_000L) {
-                handler.removeCallbacks(discoveryTick);
-                handler.postDelayed(discoveryTick, Math.min(SEARCH_STEP_MS, Math.max(5_000L, left - 10_000L)));
-            }
-        }));
+                long left;
+                synchronized (CentralCore.this) {
+                    left = windowEndsAt - SystemClock.elapsedRealtime();
+                }
+                if (isEnabled() && left > 10_000L) {
+                    scheduleDiscovery(generation, Math.min(SEARCH_STEP_MS, Math.max(5_000L, left - 10_000L)));
+                }
+            }));
+        }
     }
 
-    private synchronized List<TelegramClientManager.GroupInfo> eligibleTargets() {
+    private List<TelegramClientManager.GroupInfo> eligibleTargets() {
+        final Set<Long> selections;
+        final boolean withPhoto;
+        synchronized (this) {
+            selections = new HashSet<>(selectedGroups);
+            withPhoto = hasPhoto();
+        }
         List<TelegramClientManager.GroupInfo> result = new ArrayList<>();
-        boolean withPhoto = hasPhoto();
         for (TelegramClientManager.GroupInfo info : telegram.getTargetGroups()) {
-            if (selectedGroups.contains(info.id) && allowsSelectedContent(info, withPhoto)) {
+            if (selections.contains(info.id) && allowsSelectedContent(info, withPhoto)) {
                 result.add(info);
             }
         }

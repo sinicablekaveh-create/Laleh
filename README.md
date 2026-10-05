@@ -45,3 +45,14 @@ Workflow فایل `.github/workflows/build-apk.yml` روی هر Push مرتبط�
 - ثبت تنظیمات و تغییر فاصلهٔ ارسال، زمان ارسال تعیین‌شده یا انتظار اجباری Telegram را لغو نمی‌کند؛ فاصلهٔ جدید برای چرخهٔ بعدی اعمال می‌شود. گروه انتخاب‌شده‌ای که مجوزش تغییر کرده، همچنان قابل برداشتن از انتخاب است.
 
 منابع رسمی: [TDLib](https://github.com/tdlib/td)، [loadChats](https://core.telegram.org/tdlib/docs/classtd_1_1td__api_1_1load_chats.html)، [مجوزهای چت](https://core.telegram.org/tdlib/docs/classtd_1_1td__api_1_1chat_permissions.html).
+
+## Core lifecycle follow-up
+
+- Central-core processing, search scoring, and queue initialization run on a dedicated Android `HandlerThread`; the panel reads a queue-size snapshot and posts view updates to the UI thread.
+- Running, stopped, and fatal-error states are explicit. START retries failed initialization; active settings saves preserve scheduled deadlines and Telegram backoff. Each tick and asynchronous result belongs to one run, so STOP/restart cannot execute stale work.
+- Shutdown releases the worker and UI listener, while retaining the saved enabled preference for the existing Activity/process restoration flow.
+- Closing a Telegram session clears member targets and chat/user/member caches. Closing during queued startup or client creation cannot recreate the connection, and updates from a previous client cannot repopulate targets. Authentication requests and the joined-group/text/photo permission rules are preserved.
+
+Validate with Java 17, Gradle 8.9, and Android SDK 35: `gradle --no-daemon testDebugUnitTest assembleDebug`. Device authentication, actual delivery, and Samsung A17 testing remain separate checks. Debug APKs require matching signing certificates for in-place updates; back up app data before any installation change that could remove it.
+
+Android references: [HandlerThread](https://developer.android.com/reference/android/os/HandlerThread), [threading](https://developer.android.com/guide/components/processes-and-threads).
