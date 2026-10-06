@@ -42,6 +42,21 @@ public class ChatPhoneResultCardView extends LinearLayout {
         addView(telegramButton);
     }
 
+    public void bind(ChatPhoneResultViewModel model) {
+        if (model == null || model.getResults().isEmpty()) {
+            bind("", "", "", null);
+            return;
+        }
+
+        ChatPhoneSourceLocator source = model.getResults().get(0);
+        bind(
+                source.getPhone(),
+                source.getChatTitle(),
+                source.getMessageId() == 0L ? "" : "پیام " + source.getMessageId(),
+                null
+        );
+    }
+
     public void bind(String phone, String chatName, String messageTime, ActionListener listener) {
         phoneView.setText(phone);
         chatView.setText(chatName);
