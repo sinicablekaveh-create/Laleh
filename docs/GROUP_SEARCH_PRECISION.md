@@ -72,3 +72,33 @@ and binds every model source through the card's existing API and navigation help
 Public Telegram search only returns discoverable chats; filtering cannot expose
 private groups. Live discovery quality, device rendering, and real-account TDLib
 behavior require a signed-in Android device. No live account search was performed.
+
+## Completed validation
+
+All **105 tests passed**, with zero failures, errors or skipped tests.
+`testDebugUnitTest assembleDebug` completed successfully. The debug APK targets
+arm64-v8a. Build warnings were limited to existing deprecated API usage and
+packaging libtdjni.so without stripping symbols. The workspace initially lacked
+a complete JDK; validation used a downloaded JDK 17 and Gradle 8.9.
+
+## Changed files
+
+- `app/src/main/java/com/sinicable/telegramelectric/ChatPhoneIndex.java`
+- `app/src/main/java/com/sinicable/telegramelectric/ChatPhoneResultAdapter.java`
+- `app/src/main/java/com/sinicable/telegramelectric/MainActivity.java`
+- `app/src/main/java/com/sinicable/telegramelectric/TelegramClientManager.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupFilter.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupKeywordBank.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupRanker.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupRankingEngine.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupSearchCache.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupSearchRecord.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/GroupSuggestionEngine.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/PersianNormalizer.java`
+- `app/src/main/java/com/sinicable/telegramelectric/groupsearch/SearchQueryBuilder.java`
+- `app/src/test/java/com/sinicable/telegramelectric/CentralCoreTest.java`
+- `app/src/test/java/com/sinicable/telegramelectric/PhoneSearchCompatibilityTest.java`
+- `app/src/test/java/com/sinicable/telegramelectric/TelegramClientManagerTest.java`
+- `app/src/test/java/com/sinicable/telegramelectric/TelegramPhoneSearchTest.java`
+- `app/src/test/java/com/sinicable/telegramelectric/groupsearch/GroupDiscoveryTest.java`
+- `docs/GROUP_SEARCH_PRECISION.md`
