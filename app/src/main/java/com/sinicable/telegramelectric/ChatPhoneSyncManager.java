@@ -1,6 +1,6 @@
 package com.sinicable.telegramelectric;
 
-import java.util.List;
+import java.util.Set;
 
 /**
  * Synchronization layer between Telegram chat messages and Laleh phone index.
@@ -18,13 +18,10 @@ public final class ChatPhoneSyncManager {
             return;
         }
 
-        List<String> numbers = ChatPhoneNumberExtractor.extract(messageText);
-        for (String number : numbers) {
-            index.add(number);
-        }
+        index.addMessageText(messageText);
     }
 
-    public List<String> getIndexedNumbers() {
-        return index.getAll();
+    public Set<String> getIndexedNumbers() {
+        return index.getPhones();
     }
 }
