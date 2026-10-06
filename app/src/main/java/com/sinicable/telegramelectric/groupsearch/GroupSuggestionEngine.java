@@ -1,7 +1,9 @@
 package com.sinicable.telegramelectric.groupsearch;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class GroupSuggestionEngine {
 
@@ -9,20 +11,25 @@ public class GroupSuggestionEngine {
 
     public List<String> generate(String query) {
         String normalized = normalizer.normalize(query);
-        List<String> suggestions = new ArrayList<>();
+        Set<String> suggestions = new LinkedHashSet<>();
 
         if (normalized.isEmpty()) {
-            return suggestions;
+            return new ArrayList<>();
         }
 
+        suggestions.add(normalized);
         suggestions.add(normalized + " گروه");
         suggestions.add("گروه " + normalized);
 
         String[] parts = normalized.split(" ");
         if (parts.length > 1) {
-            suggestions.add("گروه " + String.join(" ", parts));
+            suggestions.add(parts[0] + " گروه");
+            String tail = String.join(" ", java.util.Arrays.copyOfRange(parts, 1, parts.length));
+            if (!tail.isEmpty()) {
+                suggestions.add(tail + " گروه");
+            }
         }
 
-        return suggestions;
+        return new ArrayList<>(suggestions);
     }
 }
