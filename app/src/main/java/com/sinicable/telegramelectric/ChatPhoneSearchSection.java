@@ -13,9 +13,9 @@ public final class ChatPhoneSearchSection {
         this.adapter = adapter;
     }
 
-    public void updateResults(List<?> results) {
+    public void updateResults(List<ChatPhoneResultViewModel> results) {
         if (adapter != null) {
-            adapter.updateResults(results);
+            adapter.update(results);
         }
     }
 }
