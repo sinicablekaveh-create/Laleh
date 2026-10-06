@@ -2,20 +2,24 @@ package com.sinicable.telegramelectric.groupsearch;
 
 public class GroupRankingEngine {
 
+    private final QueryNormalizer normalizer = new QueryNormalizer();
+
     public int calculateScore(String title, String query) {
-        if (title == null || query == null) {
+        String normalizedTitle = normalizer.normalize(title);
+        String normalizedQuery = normalizer.normalize(query);
+
+        if (normalizedTitle.isEmpty() || normalizedQuery.isEmpty()) {
             return 0;
         }
 
         int score = 0;
-        String normalizedTitle = title.trim();
-        String normalizedQuery = query.trim();
 
         if (normalizedTitle.equalsIgnoreCase(normalizedQuery)) {
             score += 40;
         }
 
-        if (normalizedTitle.contains(normalizedQuery)) {
+        if (normalizedTitle.toLowerCase(java.util.Locale.ROOT)
+                .contains(normalizedQuery.toLowerCase(java.util.Locale.ROOT))) {
             score += 30;
         }
 
