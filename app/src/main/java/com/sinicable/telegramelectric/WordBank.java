@@ -13,6 +13,7 @@ import java.util.Set;
 public final class WordBank {
     private static final String PREFS = "electrical_word_bank";
     private static final String KEY_WORDS = "words";
+    private static final String KEY_REMOVED_WORDS = "removed_words";
     private static final String KEY_IRAN_SEED_VERSION = "iran_seed_version";
     private static final int IRAN_SEED_VERSION = 1;
 
@@ -41,34 +42,49 @@ public final class WordBank {
 
     private final SharedPreferences prefs;
     private final Set<String> words = new HashSet<>();
+    private final Set<String> removedWords = new HashSet<>();
     private final OfflineWordAI offlineAI;
 
     public WordBank(Context context) {
         prefs = context.getApplicationContext().getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         offlineAI = new OfflineWordAI(context);
 
+        Set<String> removed = prefs.getStringSet(KEY_REMOVED_WORDS, Collections.emptySet());
+        if (removed != null) {
+            for (String value : removed) removedWords.add(normalize(value));
+        }
+
         Set<String> saved = prefs.getStringSet(KEY_WORDS, null);
-        if (saved != null && !saved.isEmpty()) {
-            words.addAll(new HashSet<>(saved));
+        if (saved != null) {
+            for (String value : saved) {
+                String word = normalize(value);
+                if (isCandidate(word)) words.add(word);
+            }
         }
 
         boolean changed = false;
-        for (String seed : SEED_WORDS) {
-            changed |= words.add(normalize(seed));
+        // A saved empty bank is intentional. Never restore words deleted by the user.
+        if (saved == null) {
+            for (String seed : SEED_WORDS) {
+                String word = normalize(seed);
+                if (!removedWords.contains(word)) changed |= words.add(word);
+            }
         }
 
         int installedSeedVersion = prefs.getInt(KEY_IRAN_SEED_VERSION, 0);
         if (installedSeedVersion < IRAN_SEED_VERSION) {
-            for (String seed : IranElectricalSearchSeeds.build()) {
-                String normalized = normalize(seed);
-                if (isCandidate(normalized)) {
-                    changed |= words.add(normalized);
+            if (saved == null || !saved.isEmpty()) {
+                for (String seed : IranElectricalSearchSeeds.build()) {
+                    String normalized = normalize(seed);
+                    if (isCandidate(normalized) && !removedWords.contains(normalized)) {
+                        changed |= words.add(normalized);
+                    }
                 }
             }
             prefs.edit().putInt(KEY_IRAN_SEED_VERSION, IRAN_SEED_VERSION).apply();
         }
 
-        if (changed || saved == null || saved.isEmpty()) {
+        if (changed || saved == null || !words.equals(saved)) {
             persist();
         }
     }
@@ -77,8 +93,35 @@ public final class WordBank {
         String word = normalize(rawWord);
         if (!isCandidate(word)) return false;
         boolean added = words.add(word);
-        if (added) persist();
+        if (added) {
+            removedWords.remove(word);
+            persist();
+        }
         return added;
+    }
+
+    public synchronized boolean remove(String rawWord) {
+        String word = normalize(rawWord);
+        boolean removed = words.remove(word);
+        if (removed) {
+            removedWords.add(word);
+            persist();
+        }
+        return removed;
+    }
+
+    public synchronized boolean edit(String oldWord, String newWord) {
+        String oldValue = normalize(oldWord);
+        String newValue = normalize(newWord);
+        if (!words.contains(oldValue) || !isCandidate(newValue)) return false;
+        if (oldValue.equals(newValue)) return true;
+        if (words.contains(newValue)) return false;
+        words.remove(oldValue);
+        words.add(newValue);
+        removedWords.add(oldValue);
+        removedWords.remove(newValue);
+        persist();
+        return true;
     }
 
     public synchronized int learnFromMessage(String message) {
@@ -100,7 +143,7 @@ public final class WordBank {
             }
 
             String candidate = normalize(suggestion.word);
-            if (isCandidate(candidate) && words.add(candidate)) {
+            if (isCandidate(candidate) && !removedWords.contains(candidate) && words.add(candidate)) {
                 added++;
             }
         }
@@ -153,22 +196,27 @@ public final class WordBank {
     }
 
     private boolean isCandidate(String word) {
-        if (word == null || word.length() < 2 || word.length() > 96) return false;
+        if (word == null || word.codePointCount(0, word.length()) < 2
+                || word.codePointCount(0, word.length()) > 96) return false;
         if (isStopWord(word)) return false;
-        return !word.matches("\\d+");
+        return word.codePoints().anyMatch(Character::isLetter);
     }
 
     private void persist() {
-        prefs.edit().putStringSet(KEY_WORDS, new HashSet<>(words)).apply();
+        prefs.edit().putStringSet(KEY_WORDS, new HashSet<>(words))
+                .putStringSet(KEY_REMOVED_WORDS, new HashSet<>(removedWords)).apply();
     }
 
-    private static String normalize(String value) {
+    static String normalize(String value) {
         if (value == null) return "";
         return value
                 .trim()
                 .toLowerCase(Locale.ROOT)
                 .replace('ي', 'ی')
+                .replace('ى', 'ی')
                 .replace('ك', 'ک')
-                .replaceAll("[\\u064B-\\u065F\\u0670]", "");
+                .replaceAll("[\\u064B-\\u065F\\u0670]", "")
+                .replaceAll("[\\s\\p{Z}]+", " ")
+                .trim();
     }
 }

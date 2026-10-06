@@ -2,6 +2,7 @@ package com.sinicable.telegramelectric;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -30,7 +31,11 @@ import android.widget.Toast;
 
 import java.io.OutputStream;
 import java.io.File;
+import java.text.DateFormat;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
@@ -39,6 +44,8 @@ public final class MainActivity extends Activity {
     private static final int REQUEST_EXPORT_FILE = 7001;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 7002;
     private static final int REQUEST_PICK_MESSAGE_PHOTO = 7003;
+    private static final int WORD_PAGE_SIZE = 50;
+    private static final int SEARCH_HISTORY_PAGE_SIZE = 20;
 
     private TelegramClientManager telegram;
     private WordBank wordBank;
@@ -52,7 +59,22 @@ public final class MainActivity extends Activity {
     private TextView internetStatusText;
     private TextView telegramConnectionText;
     private TextView countText;
-    private TextView wordsText;
+    private LinearLayout wordList;
+    private TextView wordPageText;
+    private Button previousWordPageButton;
+    private Button nextWordPageButton;
+    private TextView wordFeedbackText;
+    private int wordPage;
+    private EditText searchStagesInput;
+    private EditText searchMinimumInput;
+    private Button wordSearchStartButton;
+    private Button wordSearchStopButton;
+    private TextView wordSearchStatusText;
+    private TextView wordSearchHistoryText;
+    private TextView searchHistoryPageText;
+    private Button previousHistoryPageButton;
+    private Button nextHistoryPageButton;
+    private int searchHistoryPage;
     private EditText apiIdInput;
     private EditText apiHashInput;
     private EditText proxyInput;
@@ -110,7 +132,9 @@ public final class MainActivity extends Activity {
         }
 
         setContentView(buildUi());
+        corePanel.setCoreDataChangedListener(this::refreshWordSearch);
         refreshWords("");
+        refreshWordSearch();
         checkInternetConnection();
 
         if (BackgroundRuntime.get() == null) {
@@ -336,6 +360,7 @@ public final class MainActivity extends Activity {
         searchInput.addTextChangedListener(new SimpleWatcher() {
             @Override
             public void afterTextChanged(Editable s) {
+                wordPage = 0;
                 refreshWords(s.toString());
             }
         });
@@ -354,9 +379,14 @@ public final class MainActivity extends Activity {
         addButton.setOnClickListener(v -> {
             if (wordBank.add(addWordInput.getText().toString())) {
                 addWordInput.setText("");
+                addWordInput.setError(null);
+                wordFeedbackText.setText("واژه افزوده و ذخیره شد.");
+                corePanel.getCore().onWordBankChanged();
                 refreshWords(searchInput.getText().toString());
+                refreshWordSearch();
             } else {
-                Toast.makeText(this, "این واژه قبلاً وجود دارد یا معتبر نیست.", Toast.LENGTH_SHORT).show();
+                wordFeedbackText.setText("افزودن انجام نشد: واژه تکراری است یا معتبر نیست؛ ۲ تا ۹۶ نویسه و غیرعددی وارد کن.");
+                addWordInput.setError("واژه معتبر و غیرتکراری وارد کن.");
             }
         });
         addRow.addView(addButton, new LinearLayout.LayoutParams(
@@ -365,16 +395,107 @@ public final class MainActivity extends Activity {
         ));
         root.addView(addRow, matchWrap());
 
-        wordsText = text("", 15, false);
-        wordsText.setTextIsSelectable(true);
-        wordsText.setPadding(dp(10), dp(10), dp(10), dp(10));
-        root.addView(wordsText, matchWrap());
+        wordFeedbackText = text("واژه‌ها روی همین گوشی ذخیره می‌شوند.", 13, false);
+        root.addView(wordFeedbackText, matchWrap());
+        wordList = new LinearLayout(this);
+        wordList.setOrientation(LinearLayout.VERTICAL);
+        root.addView(wordList, matchWrap());
+
+        LinearLayout wordPages = new LinearLayout(this);
+        wordPages.setOrientation(LinearLayout.HORIZONTAL);
+        previousWordPageButton = button("قبلی");
+        previousWordPageButton.setOnClickListener(v -> {
+            wordPage = Math.max(0, wordPage - 1);
+            refreshWords(searchInput.getText().toString());
+        });
+        wordPages.addView(previousWordPageButton, weightedButton());
+        wordPageText = text("", 13, false);
+        wordPageText.setGravity(Gravity.CENTER);
+        wordPages.addView(wordPageText, weightedButton());
+        nextWordPageButton = button("بعدی");
+        nextWordPageButton.setOnClickListener(v -> {
+            wordPage++;
+            refreshWords(searchInput.getText().toString());
+        });
+        wordPages.addView(nextWordPageButton, weightedButton());
+        root.addView(wordPages, matchWrap());
+
+        space(root, 16);
+        root.addView(text("جستجوی مرحله‌ای بانک واژه", 19, true), matchWrap());
+        root.addView(text(
+                "هر مرحله در تلگرام جستجو می‌شود و یک نویسه از انتهای عبارت کم می‌شود. پس از رسیدن به تعداد مراحل یا حداقل طول واژه پایانی، نوبت واژه بعدی است. برای «برق ساختمان»، تنظیم ۵ مرحله و حداقل ۳ نویسه تا «برق ساخ» پیش می‌رود.",
+                12, false
+        ), matchWrap());
+        root.addView(text("حداکثر مراحل هر واژه", 14, true), matchWrap());
+        searchStagesInput = input("تعداد مراحل", InputType.TYPE_CLASS_NUMBER);
+        searchStagesInput.setText(String.valueOf(corePanel.getCore().getMaxSearchStages()));
+        root.addView(searchStagesInput, matchWrap());
+        root.addView(text("حداقل طول واژه پایانی (نویسه)", 14, true), matchWrap());
+        searchMinimumInput = input("حداقل طول", InputType.TYPE_CLASS_NUMBER);
+        searchMinimumInput.setText(String.valueOf(corePanel.getCore().getMinimumSearchLength()));
+        root.addView(searchMinimumInput, matchWrap());
+
+        Button saveSearchConfigButton = button("ذخیره تنظیمات جستجو");
+        saveSearchConfigButton.setOnClickListener(v -> {
+            if (saveWordSearchConfig()) wordFeedbackText.setText("تنظیمات جستجو ذخیره شد.");
+        });
+        root.addView(saveSearchConfigButton, matchWrap());
+        LinearLayout searchControls = new LinearLayout(this);
+        searchControls.setOrientation(LinearLayout.HORIZONTAL);
+        wordSearchStartButton = button("شروع / ادامه جستجو");
+        wordSearchStartButton.setOnClickListener(v -> {
+            if (!saveWordSearchConfig()) return;
+            corePanel.getCore().startWordSearch();
+            refreshWordSearch();
+        });
+        searchControls.addView(wordSearchStartButton, weightedButton());
+        wordSearchStopButton = button("توقف جستجو");
+        wordSearchStopButton.setOnClickListener(v -> {
+            corePanel.getCore().stopWordSearch();
+            refreshWordSearch();
+        });
+        searchControls.addView(wordSearchStopButton, weightedButton());
+        root.addView(searchControls, matchWrap());
+
+        Button restartWordSearchButton = button("جستجوی بانک از ابتدا");
+        restartWordSearchButton.setOnClickListener(v -> {
+            if (!saveWordSearchConfig()) return;
+            corePanel.getCore().restartWordSearch();
+            searchHistoryPage = 0;
+            refreshWordSearch();
+        });
+        root.addView(restartWordSearchButton, matchWrap());
+        wordSearchStatusText = text("", 14, true);
+        wordSearchStatusText.setTextIsSelectable(true);
+        root.addView(wordSearchStatusText, matchWrap());
+        root.addView(text("تاریخچه ذخیره‌شده مراحل و نتیجه‌ها", 16, true), matchWrap());
+        wordSearchHistoryText = text("", 13, false);
+        wordSearchHistoryText.setTextIsSelectable(true);
+        root.addView(wordSearchHistoryText, matchWrap());
+        LinearLayout historyPages = new LinearLayout(this);
+        historyPages.setOrientation(LinearLayout.HORIZONTAL);
+        previousHistoryPageButton = button("جدیدتر");
+        previousHistoryPageButton.setOnClickListener(v -> {
+            searchHistoryPage = Math.max(0, searchHistoryPage - 1);
+            refreshWordSearch();
+        });
+        historyPages.addView(previousHistoryPageButton, weightedButton());
+        searchHistoryPageText = text("", 13, false);
+        searchHistoryPageText.setGravity(Gravity.CENTER);
+        historyPages.addView(searchHistoryPageText, weightedButton());
+        nextHistoryPageButton = button("قدیمی‌تر");
+        nextHistoryPageButton.setOnClickListener(v -> {
+            searchHistoryPage++;
+            refreshWordSearch();
+        });
+        historyPages.addView(nextHistoryPageButton, weightedButton());
+        root.addView(historyPages, matchWrap());
 
         space(root, 20);
         root.addView(text(
                 "برای ورود خودکار، API ID و API Hash فقط در فضای خصوصی همین برنامه روی گوشی ذخیره می‌شوند و داخل GitHub قرار نمی‌گیرند. " +
-                        "شماره، کد ورود و رمز دومرحله‌ای توسط این بخش ذخیره نمی‌شوند؛ نشست تلگرام را TDLib نگه می‌دارد. " +
-                        "بانک واژه و بسته ۱۰۰۰ عبارت فارسی برق ایران هم روی همین گوشی ذخیره می‌شوند.",
+                        "شماره ورود، کد ورود و رمز دومرحله‌ای توسط این بخش ذخیره نمی‌شوند؛ نشست تلگرام را TDLib نگه می‌دارد. " +
+                        "بانک واژه، مخاطبین دارای شماره و تاریخچه نتیجه‌های جستجو در فضای خصوصی برنامه روی همین گوشی ذخیره می‌شوند.",
                 12,
                 false
         ), matchWrap());
@@ -444,6 +565,13 @@ public final class MainActivity extends Activity {
             }
 
             @Override
+            public void onContactsLoadChanged() {
+                runOnUiThread(() -> {
+                    if (corePanel != null) corePanel.onContactsLoadChanged();
+                });
+            }
+
+            @Override
             public void onError(String message) {
                 runOnUiThread(() -> {
                     if (statusText != null) statusText.setText("خطا: " + message);
@@ -459,6 +587,7 @@ public final class MainActivity extends Activity {
                 if (added > 0) {
                     runOnUiThread(() -> {
                         if (searchInput != null) {
+                            corePanel.getCore().onWordBankChanged();
                             refreshWords(searchInput.getText().toString());
                         }
                         if (countText != null) {
@@ -790,18 +919,169 @@ public final class MainActivity extends Activity {
     }
 
     private void refreshWords(String query) {
+        if (wordList == null) return;
         List<String> list = wordBank.search(query);
         countText.setText("بانک واژه: " + wordBank.size() + " واژه — نمایش " + list.size());
+        int pages = Math.max(1, (list.size() + WORD_PAGE_SIZE - 1) / WORD_PAGE_SIZE);
+        wordPage = Math.max(0, Math.min(wordPage, pages - 1));
+        wordList.removeAllViews();
+        int start = wordPage * WORD_PAGE_SIZE;
+        int end = Math.min(list.size(), start + WORD_PAGE_SIZE);
+        for (int i = start; i < end; i++) {
+            String word = list.get(i);
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView wordView = text(word, 15, false);
+            wordView.setTextIsSelectable(true);
+            row.addView(wordView, new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ));
+            Button editButton = button("ویرایش");
+            editButton.setOnClickListener(v -> editWord(word));
+            row.addView(editButton, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+            Button deleteButton = button("حذف");
+            deleteButton.setOnClickListener(v -> deleteWord(word));
+            row.addView(deleteButton, new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ));
+            wordList.addView(row, matchWrap());
+        }
+        if (list.isEmpty()) {
+            wordList.addView(text("واژه‌ای برای نمایش وجود ندارد.", 14, false), matchWrap());
+        }
+        wordPageText.setText("صفحه " + (wordPage + 1) + " از " + pages);
+        previousWordPageButton.setEnabled(wordPage > 0);
+        nextWordPageButton.setEnabled(wordPage + 1 < pages);
+    }
 
-        StringBuilder builder = new StringBuilder();
-        int limit = Math.min(list.size(), 300);
-        for (int i = 0; i < limit; i++) {
-            builder.append("• ").append(list.get(i)).append('\n');
+    private void editWord(String word) {
+        EditText editInput = input("واژه جدید", InputType.TYPE_CLASS_TEXT);
+        editInput.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        editInput.setText(word);
+        editInput.setSelection(editInput.length());
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("ویرایش واژه")
+                .setView(editInput)
+                .setNegativeButton("انصراف", null)
+                .setPositiveButton("ذخیره", null)
+                .create();
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+                .setOnClickListener(v -> {
+                    if (!wordBank.edit(word, editInput.getText().toString())) {
+                        editInput.setError("واژه معتبر و غیرتکراری وارد کن؛ ۲ تا ۹۶ نویسه و غیرعددی.");
+                        wordFeedbackText.setText("ویرایش انجام نشد: واژه نامعتبر، تکراری یا حذف‌شده است.");
+                        return;
+                    }
+                    wordFeedbackText.setText("واژه ویرایش و ذخیره شد.");
+                    corePanel.getCore().onWordBankChanged();
+                    refreshWords(searchInput.getText().toString());
+                    refreshWordSearch();
+                    dialog.dismiss();
+                }));
+        dialog.show();
+    }
+
+    private void deleteWord(String word) {
+        new AlertDialog.Builder(this)
+                .setTitle("حذف واژه")
+                .setMessage("«" + word + "» از بانک واژه حذف شود؟")
+                .setNegativeButton("انصراف", null)
+                .setPositiveButton("حذف", (dialog, which) -> {
+                    boolean removed = wordBank.remove(word);
+                    wordFeedbackText.setText(removed
+                            ? "واژه حذف و تغییر ذخیره شد." : "این واژه قبلاً حذف شده است.");
+                    corePanel.getCore().onWordBankChanged();
+                    refreshWords(searchInput.getText().toString());
+                    refreshWordSearch();
+                })
+                .show();
+    }
+
+    private boolean saveWordSearchConfig() {
+        try {
+            int stages = parseLocalizedPositiveInt(searchStagesInput.getText().toString());
+            int minimum = parseLocalizedPositiveInt(searchMinimumInput.getText().toString());
+            if (stages < 1 || stages > 100 || minimum < 2 || minimum > 96) {
+                throw new IllegalArgumentException("range");
+            }
+            corePanel.getCore().setSearchConfig(stages, minimum);
+            searchStagesInput.setError(null);
+            searchMinimumInput.setError(null);
+            refreshWordSearch();
+            return true;
+        } catch (IllegalArgumentException error) {
+            wordFeedbackText.setText("تنظیمات نامعتبر: مراحل باید ۱ تا ۱۰۰ و حداقل طول باید ۲ تا ۹۶ باشد.");
+            return false;
         }
-        if (list.size() > limit) {
-            builder.append("… و ").append(list.size() - limit).append(" واژه دیگر");
+    }
+
+    private static int parseLocalizedPositiveInt(String value) {
+        String input = value.trim();
+        if (input.isEmpty()) throw new NumberFormatException("empty");
+        StringBuilder digits = new StringBuilder();
+        for (int i = 0; i < input.length(); i++) {
+            int digit = Character.digit(input.charAt(i), 10);
+            if (digit < 0) throw new NumberFormatException("digits");
+            digits.append(digit);
         }
-        wordsText.setText(builder.toString());
+        return Integer.parseInt(digits.toString());
+    }
+
+    private void refreshWordSearch() {
+        if (wordSearchStatusText == null || isFinishing() || isDestroyed()) return;
+        CentralCore core = corePanel.getCore();
+        wordSearchStatusText.setText(core.getWordSearchStatus());
+        boolean running = core.isWordSearchRunning();
+        wordSearchStartButton.setEnabled(!running);
+        wordSearchStopButton.setEnabled(running);
+
+        long historyCount = core.getSearchHistoryCount();
+        int pages = (int) Math.max(1L,
+                (Math.min(historyCount, Integer.MAX_VALUE) + SEARCH_HISTORY_PAGE_SIZE - 1L)
+                        / SEARCH_HISTORY_PAGE_SIZE);
+        searchHistoryPage = Math.max(0, Math.min(searchHistoryPage, pages - 1));
+        previousHistoryPageButton.setEnabled(searchHistoryPage > 0);
+        nextHistoryPageButton.setEnabled(searchHistoryPage + 1 < pages);
+        searchHistoryPageText.setText("صفحه " + (searchHistoryPage + 1) + " از " + pages);
+        List<WordSearchResult> history = core.getSearchHistory(
+                searchHistoryPage * SEARCH_HISTORY_PAGE_SIZE, SEARCH_HISTORY_PAGE_SIZE
+        );
+        if (history.isEmpty()) {
+            wordSearchHistoryText.setText("هنوز مرحله‌ای اجرا نشده است.");
+            return;
+        }
+        Map<Long, TelegramClientManager.GroupInfo> groups = new HashMap<>();
+        for (TelegramClientManager.GroupInfo group : telegram.getFoundGroups()) {
+            groups.put(group.id, group);
+        }
+        StringBuilder out = new StringBuilder();
+        DateFormat dateFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT);
+        for (WordSearchResult result : history) {
+            out.append(dateFormat.format(new Date(result.timestamp)))
+                    .append(" — ").append(result.success ? "موفق" : "ناموفق").append('\n');
+            out.append("واژه: ").append(result.originalWord)
+                    .append(" | مرحله: ").append(result.stage).append('\n');
+            out.append("جستجو: ").append(result.query).append('\n');
+            out.append("گروه جدید: ").append(result.newGroups)
+                    .append(" | نتیجه: ").append(result.totalGroups).append('\n');
+            if (result.error != null && !result.error.isEmpty()) {
+                out.append("خطا: ").append(result.error).append('\n');
+            }
+            for (Long id : result.resultIds) {
+                TelegramClientManager.GroupInfo group = groups.get(id);
+                if (group == null) {
+                    out.append("شناسه نتیجه: ").append(id).append('\n');
+                } else {
+                    out.append("• ").append(group.title).append(" — ").append(group.link)
+                            .append(" (شناسه ").append(id).append(')').append('\n');
+                }
+            }
+            out.append("────────────\n");
+        }
+        wordSearchHistoryText.setText(out.toString());
     }
 
     private EditText input(String hint, int inputType) {
@@ -862,6 +1142,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         fileExecutor.shutdown();
+        if (corePanel != null) corePanel.detachUiCallbacks();
         if (backgroundModeStore != null
                 && backgroundModeStore.isEnabled()
                 && corePanel != null
