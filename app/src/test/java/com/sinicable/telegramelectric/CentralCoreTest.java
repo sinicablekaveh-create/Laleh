@@ -3,6 +3,8 @@ package com.sinicable.telegramelectric;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Handler;
+import android.os.HandlerThread;
+import android.os.SystemClock;
 import android.os.Looper;
 
 import org.drinkless.tdlib.Client;
@@ -28,10 +30,15 @@ public class CentralCoreTest {
     private final ArrayDeque<Runnable> immediate = new ArrayDeque<>();
     private final List<Scheduled> delayed = new ArrayList<>();
     private final List<TdApi.Function> requests = new ArrayList<>();
+    private final List<Object> handlerLoopers = new ArrayList<>();
     private final List<String> statuses = new ArrayList<>();
     private MockedStatic<Looper> loopers;
+    private MockedStatic<SystemClock> clock;
     private MockedConstruction<Handler> handlers;
+    private MockedConstruction<HandlerThread> workerThreads;
     private TelegramClientManager telegram;
+    private Context application;
+    private WordBank words;
     private CentralCore core;
     private boolean deferDiscovery;
     private Client.ResultHandler pendingDiscovery;
@@ -45,9 +52,14 @@ public class CentralCoreTest {
 
     @Before
     public void setUp() throws Exception {
+        clock = mockStatic(SystemClock.class);
+        clock.when(SystemClock::elapsedRealtime).thenReturn(1_000_000L);
         loopers = mockStatic(Looper.class);
         loopers.when(Looper::getMainLooper).thenReturn(mock(Looper.class));
+        workerThreads = mockConstruction(HandlerThread.class, (thread, context) ->
+                when(thread.getLooper()).thenReturn(mock(Looper.class)));
         handlers = mockConstruction(Handler.class, (handler, context) -> {
+            handlerLoopers.add(context.arguments().get(0));
             when(handler.post(any(Runnable.class))).thenAnswer(call -> {
                 immediate.add(call.getArgument(0));
                 return true;
@@ -64,6 +76,7 @@ public class CentralCoreTest {
             }).when(handler).removeCallbacks(any(Runnable.class));
         });
         Context context = mock(Context.class);
+        application = context;
         SharedPreferences prefs = mock(SharedPreferences.class);
         SharedPreferences.Editor editor = mock(SharedPreferences.Editor.class, RETURNS_SELF);
         when(context.getApplicationContext()).thenReturn(context);
@@ -93,13 +106,14 @@ public class CentralCoreTest {
         setTelegramField("currentStep", TelegramClientManager.AuthStep.READY);
         setTelegramField("connectionReady", true);
 
-        WordBank words = mock(WordBank.class);
+        words = mock(WordBank.class);
         when(words.size()).thenReturn(1);
         when(words.allWords()).thenReturn(List.of("برق"));
         core = new CentralCore(context, telegram, words, new CentralCore.Listener() {
             @Override public void onStatus(String message) { statuses.add(message); }
             @Override public void onDataChanged() { }
         });
+        runImmediateTasks(); // worker search-queue initialization
     }
 
     @After
@@ -113,7 +127,9 @@ public class CentralCoreTest {
             }
         }
         if (handlers != null) handlers.close();
+        if (workerThreads != null) workerThreads.close();
         if (loopers != null) loopers.close();
+        if (clock != null) clock.close();
     }
 
     @Test
@@ -209,6 +225,119 @@ public class CentralCoreTest {
         assertEquals(1, sentMessages().size());
         assertEquals(1, delayed.size());
         assertTrue(delayed.get(0).delay >= 300_000L);
+    }
+
+    @Test
+    public void processingUsesWorkerLooperRatherThanMainLooper() {
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, workerThreads.constructed().size());
+        verify(workerThreads.constructed().get(0)).start();
+        assertSame(workerThreads.constructed().get(0).getLooper(), handlerLoopers.get(0));
+        assertNotSame(Looper.getMainLooper(), handlerLoopers.get(0));
+    }
+
+    @Test
+    public void repeatedStartDoesNotDuplicatePendingPipeline() {
+        assertTrue(core.start());
+        assertTrue(core.start());
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void shutdownDisablesCoreAndCannotBeRestarted() {
+        core.start();
+        core.shutdown();
+        runImmediateTasks();
+        assertFalse(core.isEnabled());
+        assertEquals(CentralCore.RunState.STOPPED, core.getRunState());
+        assertFalse(core.start());
+        verify(workerThreads.constructed().get(0)).quitSafely();
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    public void dequeuedTickBeforeStopCannotExecuteInNewRun() {
+        core.start();
+        Runnable stale = immediate.remove();
+        core.stop();
+        core.start();
+        stale.run();
+        assertTrue("Old tick must not schedule work in a new run", delayed.isEmpty());
+        runImmediateTasks();
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void selectedGroupThatWasLeftIsNotSentTo() throws Exception {
+        joinedGroup(5L, new TdApi.ChatMemberStatusMember());
+        core.setGroupSelected(-1005L, true);
+        core.setMessage("برق");
+        TdApi.Supergroup left = new TdApi.Supergroup();
+        left.id = 5L;
+        left.status = new TdApi.ChatMemberStatusLeft();
+        update(new TdApi.UpdateSupergroup(left));
+        core.start();
+        runImmediateTasks();
+        assertTrue(sentMessages().isEmpty());
+        assertEquals(0, core.selectedGroupCount());
+    }
+
+    @Test
+    public void transportExceptionStopsPipelineAndReportsError() throws Exception {
+        Field field = TelegramClientManager.class.getDeclaredField("client");
+        field.setAccessible(true);
+        Client transport = (Client) field.get(telegram);
+        doThrow(new IllegalStateException("transport unavailable"))
+                .when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        core.start();
+        runImmediateTasks();
+        assertFalse(core.isEnabled());
+        assertEquals(CentralCore.RunState.ERROR, core.getRunState());
+        assertTrue(statuses.get(statuses.size() - 1).contains("خطا"));
+        assertTrue(delayed.isEmpty());
+    }
+
+    @Test
+    public void attachingListenerReplaysCurrentStateWithoutAnotherWorker() {
+        core.start();
+        runImmediateTasks();
+        CentralCore.Listener replacement = mock(CentralCore.Listener.class);
+        core.setListener(replacement);
+        verify(replacement).onStatus(core.getStatusMessage());
+        verify(replacement).onDataChanged();
+        assertEquals(CentralCore.RunState.RUNNING, core.getRunState());
+        assertEquals(1, workerThreads.constructed().size());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void startRetriesSearchQueueInitializationAfterTransientFailure() {
+        core.shutdown();
+        when(words.allWords()).thenThrow(new IllegalStateException("temporary failure"))
+                .thenReturn(List.of("برق"));
+        core = new CentralCore(application, telegram, words, mock(CentralCore.Listener.class));
+        runImmediateTasks();
+        assertEquals(CentralCore.RunState.ERROR, core.getRunState());
+        assertTrue(core.start());
+        runImmediateTasks();
+        assertEquals(CentralCore.RunState.RUNNING, core.getRunState());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void initializationFailureAfterStopCannotOverwriteStoppedState() {
+        core.shutdown();
+        when(words.allWords()).thenAnswer(call -> {
+            core.stop();
+            throw new IllegalStateException("initialization completed after stop");
+        });
+        core = new CentralCore(application, telegram, words, mock(CentralCore.Listener.class));
+        runImmediateTasks();
+        assertEquals(CentralCore.RunState.STOPPED, core.getRunState());
+        assertFalse(core.isEnabled());
     }
 
     private void runImmediateTasks() {

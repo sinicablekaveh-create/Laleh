@@ -82,6 +82,7 @@ public final class TelegramClientManager {
     private final java.util.concurrent.atomic.AtomicInteger targetLoadGeneration =
             new java.util.concurrent.atomic.AtomicInteger();
     private volatile String targetGroupsLoadMessage = "برای دریافت گروه‌های عضو، ابتدا وارد حساب تلگرام شو.";
+    private long clientGeneration;
 
 
     public static final class GroupInfo {
@@ -189,21 +190,35 @@ public final class TelegramClientManager {
             return;
         }
 
-        if (!starting.compareAndSet(false, true)) {
-            listener.onError("راه‌اندازی تلگرام در حال انجام است.");
-            return;
-        }
-
         final int requestedApiId = apiId;
         final String requestedApiHash = apiHash.trim();
-        currentStep = AuthStep.WAIT_PARAMETERS;
-        listener.onAuthStep(currentStep, "در حال راه‌اندازی اتصال تلگرام...");
+        final long requestedGeneration;
+        synchronized (this) {
+            if (client != null && TelegramClientManager.this.apiId == requestedApiId
+                    && TelegramClientManager.this.apiHash.equals(requestedApiHash)
+                    && currentStep != AuthStep.CLOSED && currentStep != AuthStep.LOGGING_OUT) {
+                listener.onAuthStep(currentStep, "نشست تلگرام فعال است؛ ورود را از همین مرحله ادامه دهید.");
+                emitCurrentConnectionStatus();
+                return;
+            }
+            if (!starting.compareAndSet(false, true)) {
+                listener.onError("راه‌اندازی تلگرام در حال انجام است.");
+                return;
+            }
+            requestedGeneration = clientGeneration;
+            currentStep = AuthStep.WAIT_PARAMETERS;
+            listener.onAuthStep(currentStep, "در حال راه‌اندازی اتصال تلگرام...");
+        }
 
         runtimeExecutor.execute(() -> {
+            long operationGeneration = requestedGeneration;
             try {
-                closeExistingClientForRestart();
-
+                final long generation;
                 synchronized (TelegramClientManager.this) {
+                    if (requestedGeneration != clientGeneration) return;
+                    closeExistingClientForRestart();
+                    generation = clientGeneration;
+                    operationGeneration = generation;
                     TelegramClientManager.this.apiId = requestedApiId;
                     TelegramClientManager.this.apiHash = requestedApiHash;
                 }
@@ -211,14 +226,31 @@ public final class TelegramClientManager {
                 ensureTdjniLoaded();
                 Client.execute(new TdApi.SetLogVerbosityLevel(1));
 
+                // Client.create starts TDLib's receiver thread before it returns.
+                // Buffer early updates until sendAuth can see the created client.
+                List<TdApi.Object> initialUpdates = new ArrayList<>();
+                boolean[] published = {false};
                 Client created = Client.create(
-                        this::onUpdate,
-                        error -> listener.onError("خطای TDLib: " + safeMessage(error)),
-                        error -> listener.onError("خطای TDLib: " + safeMessage(error))
+                        update -> {
+                            synchronized (TelegramClientManager.this) {
+                                if (generation != clientGeneration) return;
+                                if (!published[0]) initialUpdates.add(update);
+                                else onUpdate(update);
+                            }
+                        },
+                        error -> reportClientError(generation, error),
+                        error -> reportClientError(generation, error)
                 );
 
                 synchronized (TelegramClientManager.this) {
+                    if (generation != clientGeneration) {
+                        created.send(new TdApi.Close(), result -> { });
+                        return;
+                    }
                     client = created;
+                    published[0] = true;
+                    for (TdApi.Object update : initialUpdates) onUpdate(update);
+                    initialUpdates.clear();
                 }
                 if (currentStep == AuthStep.READY) refreshTargetGroups();
 
@@ -228,14 +260,31 @@ public final class TelegramClientManager {
                 }
             } catch (Throwable error) {
                 synchronized (TelegramClientManager.this) {
+                    if (operationGeneration != clientGeneration) return;
+                    Client failed = client;
                     client = null;
+                    clientGeneration++;
+                    currentStep = AuthStep.IDLE;
+                    connectionReady = false;
+                    connectionStatusMessage = "تلگرام: راه‌اندازی اتصال ناموفق بود.";
+                    listener.onConnectionStatus(connectionStatusMessage, false);
+                    clearSessionCaches();
+                    if (failed != null) {
+                        try {
+                            failed.send(new TdApi.Close(), result -> { });
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                    listener.onError("راه‌اندازی TDLib ناموفق بود: " + safeMessage(error));
                 }
-                currentStep = AuthStep.IDLE;
-                listener.onError("راه‌اندازی TDLib ناموفق بود: " + safeMessage(error));
             } finally {
                 starting.set(false);
             }
         });
+    }
+
+    private synchronized void reportClientError(long generation, Throwable error) {
+        if (generation == clientGeneration) listener.onError("خطای TDLib: " + safeMessage(error));
     }
 
     private static void ensureTdjniLoaded() {
@@ -252,6 +301,20 @@ public final class TelegramClientManager {
         Client local = client;
         client = null;
         connectionReady = false;
+        connectionStatusMessage = "تلگرام: در حال راه‌اندازی اتصال...";
+        listener.onConnectionStatus(connectionStatusMessage, false);
+        clientGeneration++;
+        clearSessionCaches();
+
+        if (local != null) {
+            try {
+                local.send(new TdApi.Close(), result -> { });
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    private synchronized void clearSessionCaches() {
         targetLoadGeneration.incrementAndGet();
         targetGroupsLoading.set(false);
         targetGroups.clear();
@@ -260,15 +323,10 @@ public final class TelegramClientManager {
         basicGroupCache.clear();
         supergroupChatIds.clear();
         basicGroupChatIds.clear();
+        userCache.clear();
+        directSenderIds.clear();
         targetGroupsLoadMessage = "در انتظار ورود و دریافت گروه‌های حساب...";
         listener.onTargetGroupsLoadChanged();
-
-        if (local != null) {
-            try {
-                local.send(new TdApi.Close(), result -> { });
-            } catch (Throwable ignored) {
-            }
-        }
     }
 
     public AuthStep getCurrentStep() {
@@ -671,7 +729,7 @@ public final class TelegramClientManager {
         applyProxy(config);
     }
 
-    public void submitPhone(String phone) {
+    public synchronized void submitPhone(String phone) {
         if (client == null) {
             listener.onError("ابتدا اتصال را شروع کنید.");
             return;
@@ -690,13 +748,15 @@ public final class TelegramClientManager {
         sendAuth(new TdApi.SetAuthenticationPhoneNumber(value, null));
     }
 
-    public void submitAuthValue(String value) {
+    public synchronized void submitAuthValue(String value) {
         if (client == null) {
             listener.onError("ابتدا اتصال را شروع کنید.");
             return;
         }
 
-        String clean = value == null ? "" : value.trim();
+        // Password whitespace is significant; codes and email may be trimmed.
+        String clean = value == null ? "" : value;
+        if (currentStep != AuthStep.PASSWORD) clean = clean.trim();
         if (clean.isEmpty()) {
             listener.onError("مقدار موردنیاز را وارد کنید.");
             return;
@@ -1349,6 +1409,7 @@ public final class TelegramClientManager {
             listener.onAuthStep(currentStep, "در حال بستن نشست تلگرام...");
         } else if (state instanceof TdApi.AuthorizationStateClosed) {
             currentStep = AuthStep.CLOSED;
+            clearSessionCaches();
             listener.onAuthStep(currentStep, "اتصال تلگرام بسته شد.");
         }
     }
@@ -1379,17 +1440,22 @@ public final class TelegramClientManager {
         sendAuth(request);
     }
 
-    private void sendAuth(TdApi.Function function) {
+    private synchronized void sendAuth(TdApi.Function function) {
         Client local = client;
+        long generation = clientGeneration;
+        AuthStep step = currentStep;
         if (local == null) {
             listener.onError("کلاینت تلگرام فعال نیست.");
             return;
         }
 
         local.send(function, result -> {
-            if (result instanceof TdApi.Error) {
-                TdApi.Error error = (TdApi.Error) result;
-                listener.onError("Telegram " + error.code + ": " + error.message);
+            synchronized (TelegramClientManager.this) {
+                if (local != client || generation != clientGeneration || step != currentStep) return;
+                if (result instanceof TdApi.Error) {
+                    TdApi.Error error = (TdApi.Error) result;
+                    listener.onError("Telegram " + error.code + ": " + error.message);
+                }
             }
         });
     }
@@ -1398,6 +1464,8 @@ public final class TelegramClientManager {
         Client local = client;
         client = null;
         currentStep = AuthStep.IDLE;
+        clientGeneration++;
+        clearSessionCaches();
         connectionReady = false;
         connectionStatusMessage = "تلگرام: اتصال بسته است.";
         listener.onConnectionStatus(connectionStatusMessage, false);

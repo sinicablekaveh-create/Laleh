@@ -8,6 +8,7 @@ import org.drinkless.tdlib.TdApi;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.MockedStatic;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -350,6 +351,124 @@ public class TelegramClientManagerTest {
         assertNotNull(manager.getTargetGroup(-1005L));
         assertEquals(1, requests.size());
         assertTrue(requests.get(0) instanceof TdApi.SearchChats);
+    }
+
+    @Test
+    public void closingSessionClearsMemberTargetsAndUserCache() throws Exception {
+        prepareSearchTransport();
+        TdApi.User user = new TdApi.User();
+        user.id = 7L;
+        update(new TdApi.UpdateUser(user));
+        manager.close();
+        assertTrue(manager.getTargetGroups().isEmpty());
+        Field cache = TelegramClientManager.class.getDeclaredField("userCache");
+        cache.setAccessible(true);
+        assertTrue(((java.util.Map<?, ?>) cache.get(manager)).isEmpty());
+    }
+
+    @Test
+    public void closedAuthorizationRemovesTargets() throws Exception {
+        prepareSearchTransport();
+        update(new TdApi.UpdateAuthorizationState(new TdApi.AuthorizationStateClosed()));
+        assertTrue(manager.getTargetGroups().isEmpty());
+    }
+
+    @Test
+    public void publicSearchCannotAddUnjoinedGroupToTargets() throws Exception {
+        List<TdApi.Function> requests = prepareSearchTransport();
+        update(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusLeft())));
+        manager.discoverPublicGroupsForReview("برق", (ok, fresh, total, message) -> assertTrue(ok));
+        assertTrue(manager.getTargetGroups().isEmpty());
+        assertEquals(1, manager.getFoundGroups().size());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
+    public void closedClientUpdatesCannotRepopulateMemberTargets() throws Exception {
+        useInlineRuntime();
+        Client transport = mock(Client.class);
+        Client.ResultHandler[] updates = {null};
+        Field loaded = TelegramClientManager.class.getDeclaredField("tdjniLoaded");
+        loaded.setAccessible(true);
+        boolean previous = loaded.getBoolean(null);
+        loaded.setBoolean(null, true);
+        try (MockedStatic<Client> tdlib = mockStatic(Client.class)) {
+            tdlib.when(() -> Client.create(any(), any(), any())).thenAnswer(call -> {
+                updates[0] = call.getArgument(0);
+                return transport;
+            });
+            manager.start(123, "test-api-hash");
+            assertNotNull(updates[0]);
+            updates[0].onResult(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+            updates[0].onResult(new TdApi.UpdateNewChat(chat()));
+            assertEquals(1, manager.getTargetGroups().size());
+            manager.close();
+            updates[0].onResult(new TdApi.UpdateSupergroup(metadata(new TdApi.ChatMemberStatusMember())));
+            updates[0].onResult(new TdApi.UpdateNewChat(chat()));
+            assertTrue(manager.getTargetGroups().isEmpty());
+            assertEquals(TelegramClientManager.AuthStep.IDLE, manager.getCurrentStep());
+        } finally {
+            loaded.setBoolean(null, previous);
+        }
+    }
+
+    @Test
+    public void closeDuringClientCreationCannotResurrectTransport() throws Exception {
+        useInlineRuntime();
+        Client transport = mock(Client.class);
+        Field loaded = TelegramClientManager.class.getDeclaredField("tdjniLoaded");
+        loaded.setAccessible(true);
+        boolean previous = loaded.getBoolean(null);
+        loaded.setBoolean(null, true);
+        try (MockedStatic<Client> tdlib = mockStatic(Client.class)) {
+            tdlib.when(() -> Client.create(any(), any(), any())).thenAnswer(call -> {
+                manager.close();
+                return transport;
+            });
+            manager.start(123, "test-api-hash");
+            Field client = TelegramClientManager.class.getDeclaredField("client");
+            client.setAccessible(true);
+            assertNull(client.get(manager));
+            verify(transport).send(isA(TdApi.Close.class), any(Client.ResultHandler.class));
+        } finally {
+            loaded.setBoolean(null, previous);
+        }
+    }
+
+    @Test
+    public void closeBeforeQueuedStartupPreventsTransportCreation() throws Exception {
+        Field executor = TelegramClientManager.class.getDeclaredField("runtimeExecutor");
+        executor.setAccessible(true);
+        ((ExecutorService) executor.get(manager)).shutdownNow();
+        ExecutorService deferred = mock(ExecutorService.class);
+        List<Runnable> queued = new ArrayList<>();
+        doAnswer(call -> { queued.add(call.getArgument(0)); return null; })
+                .when(deferred).execute(any(Runnable.class));
+        executor.set(manager, deferred);
+        Field loaded = TelegramClientManager.class.getDeclaredField("tdjniLoaded");
+        loaded.setAccessible(true);
+        boolean previous = loaded.getBoolean(null);
+        loaded.setBoolean(null, true);
+        try (MockedStatic<Client> tdlib = mockStatic(Client.class)) {
+            tdlib.when(() -> Client.create(any(), any(), any())).thenReturn(mock(Client.class));
+            manager.start(123, "test-api-hash");
+            manager.close();
+            queued.get(0).run();
+            tdlib.verify(() -> Client.create(any(), any(), any()), never());
+            assertEquals(TelegramClientManager.AuthStep.IDLE, manager.getCurrentStep());
+        } finally {
+            loaded.setBoolean(null, previous);
+        }
+    }
+
+    private void useInlineRuntime() throws Exception {
+        Field field = TelegramClientManager.class.getDeclaredField("runtimeExecutor");
+        field.setAccessible(true);
+        ((ExecutorService) field.get(manager)).shutdownNow();
+        ExecutorService inline = mock(ExecutorService.class);
+        doAnswer(call -> { ((Runnable) call.getArgument(0)).run(); return null; })
+                .when(inline).execute(any(Runnable.class));
+        field.set(manager, inline);
     }
 
     private List<TdApi.Function> prepareSearchTransport() throws Exception {
