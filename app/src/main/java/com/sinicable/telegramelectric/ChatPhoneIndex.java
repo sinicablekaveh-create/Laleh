@@ -1,6 +1,7 @@
 package com.sinicable.telegramelectric;
 
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -15,7 +16,7 @@ public final class ChatPhoneIndex {
             return false;
         }
 
-        Set<String> found = ChatPhoneNumberExtractor.extract(text);
+        List<String> found = ChatPhoneNumberExtractor.extract(text);
         return phones.addAll(found);
     }
 
