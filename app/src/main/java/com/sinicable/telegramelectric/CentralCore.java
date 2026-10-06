@@ -6,10 +6,12 @@ import android.os.Handler;
 import android.os.Looper;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,9 +39,15 @@ public final class CentralCore {
     private static final String KEY_MODE = "mode";
     private static final String KEY_GROUPS = "selected_groups";
     private static final String KEY_SENT_COUNT = "sent_count";
+    private static final String KEY_WORD_SEARCH_ENABLED = "word_search_enabled";
+    private static final String KEY_SEARCH_NOT_BEFORE = "search_not_before";
 
     private static final long SEARCH_STEP_MS = 30_000L;
+    private static final long SEARCH_TIMEOUT_MS = 90_000L;
     private static final Pattern FLOOD_WAIT = Pattern.compile("FLOOD_WAIT[_ ]?(\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RETRY_AFTER = Pattern.compile("retry\\s+after\\s+(\\d+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern RATE_LIMIT = Pattern.compile("(?:Telegram\\s+429\\b|FLOOD_WAIT)", Pattern.CASE_INSENSITIVE);
+    private static final Logger LOG = Logger.getLogger("WordSearch");
 
     private final TelegramClientManager telegram;
     private final WordBank wordBank;
@@ -52,6 +60,13 @@ public final class CentralCore {
 
     private boolean enabled;
     private boolean searchInFlight;
+    private boolean wordSearchRunning;
+    private long searchGeneration;
+    private long searchRequestToken;
+    private long searchNotBefore;
+    private long nextSearchAt;
+    private String wordSearchStatus = "جستجوی بانک واژه آماده است.";
+    private Runnable searchTimeout;
     private boolean sendInFlight;
     private long runGeneration;
     private String message;
@@ -89,6 +104,8 @@ public final class CentralCore {
         this.smartQueue = new SmartSearchQueue(context, wordBank);
 
         enabled = prefs.getBoolean(KEY_ENABLED, false);
+        wordSearchRunning = prefs.getBoolean(KEY_WORD_SEARCH_ENABLED, enabled);
+        searchNotBefore = prefs.getLong(KEY_SEARCH_NOT_BEFORE, 0L);
         message = prefs.getString(KEY_MESSAGE, "");
         photoPath = prefs.getString(KEY_PHOTO_PATH, "");
         sentCount = prefs.getLong(KEY_SENT_COUNT, 0L);
@@ -104,6 +121,10 @@ public final class CentralCore {
 
         if (enabled) {
             handler.postDelayed(sendTick, 5_000L);
+            if (wordSearchRunning) handler.postDelayed(discoveryTick, 6_000L);
+        } else if (wordSearchRunning) {
+            wordSearchStatus = "ادامهٔ جستجوی ذخیره‌شده؛ در انتظار اتصال تلگرام...";
+            handler.postDelayed(discoveryTick, 5_000L);
         }
     }
 
@@ -201,6 +222,78 @@ public final class CentralCore {
         return smartQueue.size();
     }
 
+    /** Starts discovery only; outbound message scheduling is independent. */
+    public synchronized void startWordSearch() {
+        if (!wordSearchRunning) {
+            searchGeneration++;
+            wordSearchRunning = true;
+            prefs.edit().putBoolean(KEY_WORD_SEARCH_ENABLED, true).apply();
+        }
+        wordSearchStatus = "جستجوی بانک واژه در حال ادامه است.";
+        if (!searchInFlight) {
+            scheduleDiscovery(0L);
+        }
+        listener.onDataChanged();
+    }
+
+    public synchronized void stopWordSearch() {
+        pauseWordSearch();
+        wordSearchStatus = "جستجوی بانک واژه متوقف شد؛ مرحلهٔ جاری برای ادامه حفظ شد.";
+        listener.onDataChanged();
+    }
+
+    public synchronized void restartWordSearch() {
+        pauseWordSearch();
+        smartQueue.restart();
+        startWordSearch();
+    }
+
+    public synchronized boolean isWordSearchRunning() { return wordSearchRunning; }
+    public synchronized String getWordSearchStatus() { return wordSearchStatus; }
+    public synchronized int getMaxSearchStages() { return smartQueue.getMaxStages(); }
+    public synchronized int getMinimumSearchLength() { return smartQueue.getMinimumLength(); }
+    public synchronized List<WordSearchResult> getSearchHistory() { return smartQueue.getHistory(); }
+    public synchronized List<WordSearchResult> getSearchHistory(int offset, int limit) {
+        return smartQueue.getHistory(offset, limit);
+    }
+    public synchronized long getSearchHistoryCount() { return smartQueue.getHistoryCount(); }
+
+    public synchronized void setSearchConfig(int maxStages, int minTrailingLength) {
+        if (maxStages < 1 || maxStages > 100 || minTrailingLength < 2 || minTrailingLength > 96) {
+            throw new IllegalArgumentException("مراحل باید ۱ تا ۱۰۰ و حد طول باید ۲ تا ۹۶ باشد.");
+        }
+        if (maxStages == getMaxSearchStages() && minTrailingLength == getMinimumSearchLength()) return;
+        boolean resume = wordSearchRunning;
+        pauseWordSearch();
+        smartQueue.configure(maxStages, minTrailingLength);
+        wordSearchStatus = "تنظیمات جستجو ذخیره شد؛ مراحل با تنظیمات جدید از ابتدا اجرا می‌شوند.";
+        if (resume) startWordSearch();
+        listener.onDataChanged();
+    }
+
+    public synchronized void onWordBankChanged() {
+        smartQueue.size(); // Exact-content synchronization also invalidates removed/edited tasks.
+        if (wordSearchRunning && !searchInFlight) {
+            scheduleDiscovery(0L);
+        }
+        listener.onDataChanged();
+    }
+
+    private void pauseWordSearch() {
+        wordSearchRunning = false;
+        searchGeneration++;
+        searchInFlight = false;
+        smartQueue.cancelPending();
+        prefs.edit().putBoolean(KEY_WORD_SEARCH_ENABLED, false).apply();
+        handler.removeCallbacks(discoveryTick);
+        clearSearchTimeout();
+    }
+
+    private void clearSearchTimeout() {
+        if (searchTimeout != null) handler.removeCallbacks(searchTimeout);
+        searchTimeout = null;
+    }
+
     public synchronized boolean start() {
         if (enabled) {
             listener.onStatus("تنظیمات ثبت شد؛ ارسال در زمان بعدی مجاز انجام می‌شود.");
@@ -208,14 +301,21 @@ public final class CentralCore {
             return true;
         }
         runGeneration++;
-        searchInFlight = false;
+        if (!wordSearchRunning) {
+            searchGeneration++;
+            smartQueue.cancelPending();
+            clearSearchTimeout();
+            searchInFlight = false;
+        }
         sendInFlight = false;
         enabled = true;
-        prefs.edit().putBoolean(KEY_ENABLED, true).apply();
+        wordSearchRunning = true;
+        prefs.edit().putBoolean(KEY_ENABLED, true).putBoolean(KEY_WORD_SEARCH_ENABLED, true).apply();
         handler.removeCallbacks(sendTick);
         handler.removeCallbacks(discoveryTick);
         listener.onStatus("هسته مرکزی فعال شد؛ جستجو شروع می‌شود و ارسال فقط با متن و گروه هدف مجاز انجام می‌شود.");
         if (!sendInFlight) handler.post(sendTick);
+        if (!searchInFlight) scheduleDiscovery(5_000L);
         listener.onDataChanged();
         return true;
     }
@@ -223,7 +323,8 @@ public final class CentralCore {
     public synchronized void stop() {
         enabled = false;
         runGeneration++;
-        searchInFlight = false;
+        pauseWordSearch();
+        wordSearchStatus = "جستجوی بانک واژه متوقف شد؛ پیشرفت ذخیره شده است.";
         sendInFlight = false;
         windowEndsAt = 0L;
         prefs.edit().putBoolean(KEY_ENABLED, false).apply();
@@ -235,8 +336,11 @@ public final class CentralCore {
 
     public synchronized void shutdown() {
         runGeneration++;
+        searchGeneration++;
         handler.removeCallbacks(sendTick);
         handler.removeCallbacks(discoveryTick);
+        clearSearchTimeout();
+        smartQueue.cancelPending();
         searchInFlight = false;
         sendInFlight = false;
     }
@@ -246,6 +350,12 @@ public final class CentralCore {
         synchronized (this) {
             if (!enabled || sendInFlight) return;
             generation = runGeneration;
+            long wait = searchNotBefore - System.currentTimeMillis();
+            if (wait > 0L) {
+                listener.onStatus("تلگرام محدودیت موقت اعمال کرده؛ ارسال بعدی پس از زمان مجاز انجام می‌شود.");
+                handler.postDelayed(sendTick, wait);
+                return;
+            }
         }
 
         if (!telegram.isReadyForSending()) {
@@ -298,8 +408,15 @@ public final class CentralCore {
             } else {
                 long floodWait = parseFloodWaitMillis(resultMessage);
                 if (floodWait > 0L) {
+                    synchronized (CentralCore.this) {
+                        searchNotBefore = Math.max(searchNotBefore, System.currentTimeMillis() + floodWait);
+                        prefs.edit().putLong(KEY_SEARCH_NOT_BEFORE, searchNotBefore).apply();
+                        handler.removeCallbacks(discoveryTick);
+                        wordSearchStatus = "محدودیت Telegram؛ جستجو پس از پایان انتظار مجاز ادامه می‌یابد.";
+                    }
                     listener.onStatus("تلگرام محدودیت موقت اعمال کرده؛ ارسال بعدی پس از زمان مجاز انجام می‌شود.");
                     handler.postDelayed(sendTick, floodWait);
+                    scheduleDiscovery(floodWait);
                 } else {
                     listener.onStatus("ارسال ناموفق به «" + target.title + "»: " + resultMessage);
                     beginDiscoveryWindow(intervalMillis());
@@ -327,70 +444,133 @@ public final class CentralCore {
         handler.removeCallbacks(discoveryTick);
 
         windowEndsAt = System.currentTimeMillis() + duration;
-        handler.post(discoveryTick);
+        if (wordSearchRunning) scheduleDiscovery(0L);
         handler.postDelayed(sendTick, duration);
     }
 
     private void runDiscoveryStep() {
-        if (!isEnabled()) return;
-
-        long remaining;
         final long generation;
+        final long token;
+        final SmartSearchQueue.SearchTask task;
         synchronized (this) {
-            generation = runGeneration;
-            remaining = windowEndsAt - System.currentTimeMillis();
-            if (remaining <= 10_000L) return;
+            if (!wordSearchRunning || searchInFlight) return;
+            long wait = searchNotBefore - System.currentTimeMillis();
+            if (wait > 0L) {
+                wordSearchStatus = "محدودیت Telegram؛ ادامهٔ مرحله پس از " + ((wait + 999L) / 1000L) + " ثانیه.";
+                listener.onDataChanged();
+                scheduleDiscovery(wait);
+                return;
+            }
             if (!telegram.isReadyForSending()) {
-                handler.postDelayed(discoveryTick, SEARCH_STEP_MS);
+                wordSearchStatus = "در انتظار اتصال کامل و ورود به تلگرام؛ پیشرفت حفظ شده است.";
+                listener.onDataChanged();
+                scheduleDiscovery(SEARCH_STEP_MS);
                 return;
             }
-            if (searchInFlight) {
-                handler.postDelayed(discoveryTick, 5_000L);
+            task = smartQueue.nextTask();
+            if (task == null) {
+                pauseWordSearch();
+                wordSearchStatus = "جستجوی بانک واژه کامل شد: " + smartQueue.completedWordCount()
+                        + " از " + smartQueue.size() + " واژه؛ نتیجه‌ها و خطاها در سوابق ذخیره شدند.";
+                listener.onStatus(wordSearchStatus);
+                listener.onDataChanged();
                 return;
             }
+            generation = searchGeneration;
+            token = ++searchRequestToken;
             searchInFlight = true;
+            wordSearchStatus = "واژه «" + task.originalWord + "»؛ مرحله " + task.stage + " از "
+                    + task.totalStages + ": «" + task.query + "»؛ " + smartQueue.completedWordCount()
+                    + " از " + smartQueue.size() + " واژه کامل شده.";
+            searchTimeout = () -> completeDiscovery(task, generation, token, false, 0, 0,
+                    "SEARCH_TIMEOUT: پاسخ جستجوی تلگرام در زمان مجاز دریافت نشد.", Collections.emptyList());
+            handler.postDelayed(searchTimeout, SEARCH_TIMEOUT_MS);
         }
-
-        String query = smartQueue.nextQuery();
-        if (query == null || query.trim().isEmpty()) {
-            synchronized (this) {
-                searchInFlight = false;
+        listener.onStatus(wordSearchStatus);
+        listener.onDataChanged();
+        LOG.fine("request token=" + token + " stage=" + task.stage
+                + "/" + task.totalStages + " queryLength=" + task.query.length());
+        TelegramClientManager.DiscoveryCallback callback = new TelegramClientManager.DiscoveryCallback() {
+            @Override
+            public void onResult(boolean success, int newItems, int totalItems, String resultMessage) {
+                onDetailedResult(success, newItems, totalItems, resultMessage, Collections.emptyList());
             }
-            handler.postDelayed(discoveryTick, SEARCH_STEP_MS);
+
+            @Override
+            public void onDetailedResult(boolean success, int newItems, int totalItems,
+                                         String resultMessage, List<Long> resultIds) {
+                handler.post(() -> completeDiscovery(task, generation, token, success,
+                        newItems, totalItems, resultMessage, resultIds));
+            }
+        };
+        try {
+            telegram.discoverPublicGroupsForReview(task.query, callback);
+        } catch (RuntimeException error) {
+            LOG.log(Level.WARNING, "Search transport failed token=" + token, error);
+            callback.onResult(false, 0, 0, "SEARCH_TRANSPORT_ERROR: " + error.getClass().getSimpleName());
+        }
+    }
+
+    private synchronized void completeDiscovery(SmartSearchQueue.SearchTask task, long generation,
+                                                long token, boolean success, int newItems,
+                                                int totalItems, String resultMessage, List<Long> resultIds) {
+        if (!wordSearchRunning || generation != searchGeneration
+                || token != searchRequestToken || !searchInFlight) return;
+        searchInFlight = false;
+        nextSearchAt = System.currentTimeMillis() + SEARCH_STEP_MS;
+        clearSearchTimeout();
+        if (!smartQueue.isCurrent(task)) {
+            wordSearchStatus = "واژهٔ جاری تغییر کرد؛ جستجو از واژه‌های موجود ادامه می‌یابد.";
+            listener.onDataChanged();
+            scheduleDiscovery(SEARCH_STEP_MS);
             return;
         }
-
-        int score = smartQueue.scoreFor(query);
-        listener.onStatus("هسته مرکزی: جستجوی گروه‌های عمومی با «" + query + "» — امتیاز " + score);
-
-        telegram.discoverPublicGroupsForReview(query, (success, newItems, totalItems, resultMessage) -> handler.post(() -> {
-            synchronized (CentralCore.this) {
-                if (!enabled || generation != runGeneration) return;
-                searchInFlight = false;
+        long floodWait = success ? 0L : parseFloodWaitMillis(resultMessage);
+        if (floodWait > 0L) {
+            searchNotBefore = Math.max(searchNotBefore, System.currentTimeMillis() + floodWait);
+            prefs.edit().putLong(KEY_SEARCH_NOT_BEFORE, searchNotBefore).apply();
+        }
+        smartQueue.recordResult(task, success, newItems, totalItems, resultMessage, resultIds, floodWait > 0L);
+        if (success) {
+            wordSearchStatus = "مرحله " + task.stage + "، «" + task.query + "»: " + totalItems
+                    + " گروه مرتبط، " + newItems + " مورد جدید؛ نتیجه ذخیره شد.";
+        } else {
+            wordSearchStatus = "خطا در مرحله " + task.stage + "، «" + task.query + "»: " + resultMessage;
+            if (floodWait > 0L) {
+                wordSearchStatus += "؛ همین مرحله پس از پایان محدودیت دوباره اجرا می‌شود.";
             }
-
-            if (success) {
-                smartQueue.recordResult(query, newItems, totalItems);
-                listener.onStatus(
-                        "جستجو «" + query + "»: " + totalItems + " گروه مرتبط، "
-                                + newItems + " مورد جدید. صف دوباره امتیازدهی شد."
-                );
-            } else {
-                smartQueue.recordResult(query, 0, 0);
-                listener.onStatus("جستجوی «" + query + "» انجام نشد: " + resultMessage);
-            }
-
+            LOG.warning("Search failed token=" + token + " stage=" + task.stage
+                    + " retry=" + (floodWait > 0L) + " message=" + resultMessage);
+        }
+        listener.onStatus(wordSearchStatus);
+        listener.onDataChanged();
+        if (floodWait == 0L && smartQueue.completedWordCount() == smartQueue.size()) {
+            pauseWordSearch();
+            wordSearchStatus += "\nپایان بانک واژه؛ همهٔ " + smartQueue.size() + " واژه پردازش شدند.";
+            listener.onStatus(wordSearchStatus);
             listener.onDataChanged();
+        } else {
+            scheduleDiscovery(Math.max(SEARCH_STEP_MS, searchNotBefore - System.currentTimeMillis()));
+        }
+    }
 
-            long left;
-            synchronized (CentralCore.this) {
-                left = windowEndsAt - System.currentTimeMillis();
-            }
-            if (isEnabled() && left > 10_000L) {
-                handler.removeCallbacks(discoveryTick);
-                handler.postDelayed(discoveryTick, Math.min(SEARCH_STEP_MS, Math.max(5_000L, left - 10_000L)));
-            }
-        }));
+    private synchronized void scheduleDiscovery(long delay) {
+        if (wordSearchRunning) {
+            handler.removeCallbacks(discoveryTick);
+            long pacedDelay = Math.max(delay,
+                    Math.max(nextSearchAt, searchNotBefore) - System.currentTimeMillis());
+            if (pacedDelay <= 0L) handler.post(discoveryTick);
+            else handler.postDelayed(discoveryTick, pacedDelay);
+        }
+    }
+
+    public synchronized int completedSearchWordCount() {
+        return smartQueue.completedWordCount();
+    }
+
+    public synchronized boolean isWordSearchWaitingForTelegram() {
+        return wordSearchRunning && (!telegram.isReadyForSending()
+                || searchNotBefore > System.currentTimeMillis());
     }
 
     private synchronized List<TelegramClientManager.GroupInfo> eligibleTargets() {
@@ -432,14 +612,17 @@ public final class CentralCore {
 
     private static long parseFloodWaitMillis(String message) {
         if (message == null) return 0L;
-        Matcher matcher = FLOOD_WAIT.matcher(message.toUpperCase(Locale.ROOT));
-        if (!matcher.find()) return 0L;
+        Matcher matcher = FLOOD_WAIT.matcher(message);
+        if (!matcher.find()) {
+            matcher = RETRY_AFTER.matcher(message);
+            if (!matcher.find()) return RATE_LIMIT.matcher(message).find() ? 60_000L : 0L;
+        }
 
         try {
             long seconds = Long.parseLong(matcher.group(1));
-            return Math.max(60_000L, seconds * 1000L);
-        } catch (Throwable ignored) {
-            return 0L;
+            return Math.max(60_000L, Math.multiplyExact(seconds, 1000L));
+        } catch (ArithmeticException | NumberFormatException ignored) {
+            return 60_000L;
         }
     }
 

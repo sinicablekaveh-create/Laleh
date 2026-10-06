@@ -45,6 +45,15 @@ public final class CentralCorePanel extends LinearLayout {
     private final TextView summaryText;
     private final TextView groupsText;
     private final TextView contactsText;
+    private final EditText contactPhoneInput;
+    private final Button contactSearchButton;
+    private final TextView contactSearchStatusText;
+    private final TextView contactSearchResultText;
+    private final Button refreshContactsButton;
+    private final TextView contactsLoadStatusText;
+    private long phoneSearchRequest;
+    private boolean uiClosed;
+    private Runnable coreDataChangedListener;
     private TextView targetEmptyText;
     private final Map<Long, CheckBox> targetChecks = new LinkedHashMap<>();
     private final Map<Long, TextView> targetNotes = new LinkedHashMap<>();
@@ -70,6 +79,7 @@ public final class CentralCorePanel extends LinearLayout {
             refreshContacts();
         }
         refreshSummary();
+        notifyCoreDataChanged();
     };
 
     private final String[] scheduleLabels = {
@@ -234,13 +244,46 @@ public final class CentralCorePanel extends LinearLayout {
         addView(groupsText, full());
 
         addSpace(14);
-        addView(label("۳) کاربران جدید دارای شماره", 19, true), full());
+        addView(label("۳) جستجوی شماره و مخاطبین تلگرام", 19, true), full());
         TextView contactNote = label(
-                "این بخش فقط کاربران گفت‌وگوی مستقیم را نگه می‌دارد که شماره تلفنشان واقعاً برای حساب قابل مشاهده باشد. شماره مخفی یا خالی ذخیره نمی‌شود.",
+                "شماره را برای جستجوی واقعی در تلگرام وارد کن. شماره‌های ایران با ۰۹ یا ۹ و شماره‌های بین‌المللی با کد کشور پذیرفته می‌شوند. نتیجه تابع وجود حساب و محدودیت حریم خصوصی تلگرام است.",
                 12,
                 false
         );
         addView(contactNote, full());
+
+        contactPhoneInput = new EditText(context);
+        contactPhoneInput.setHint("شماره مخاطب؛ مثال: 09123456789 یا +989123456789");
+        contactPhoneInput.setInputType(InputType.TYPE_CLASS_PHONE);
+        contactPhoneInput.setTextDirection(View.TEXT_DIRECTION_LTR);
+        contactPhoneInput.setSingleLine(true);
+        addView(contactPhoneInput, full());
+
+        contactSearchButton = new Button(context);
+        contactSearchButton.setText("جستجوی مخاطب با شماره");
+        contactSearchButton.setAllCaps(false);
+        contactSearchButton.setOnClickListener(v -> searchContact());
+        addView(contactSearchButton, full());
+
+        contactSearchStatusText = label("برای جستجو شماره مخاطب را وارد کن.", 13, true);
+        contactSearchStatusText.setTextIsSelectable(true);
+        addView(contactSearchStatusText, full());
+        contactSearchResultText = label("", 14, false);
+        contactSearchResultText.setTextIsSelectable(true);
+        addView(contactSearchResultText, full());
+
+        refreshContactsButton = new Button(context);
+        refreshContactsButton.setText("دریافت مجدد مخاطبین تلگرام");
+        refreshContactsButton.setAllCaps(false);
+        refreshContactsButton.setOnClickListener(v -> {
+            telegram.refreshTelegramContacts();
+            refreshContactsLoadStatus();
+        });
+        addView(refreshContactsButton, full());
+        contactsLoadStatusText = label("", 12, false);
+        contactsLoadStatusText.setTextIsSelectable(true);
+        addView(contactsLoadStatusText, full());
+        addView(label("فهرست ذخیره‌شده مخاطبین تلگرام", 14, true), full());
 
         contactsText = label("", 14, false);
         contactsText.setTextIsSelectable(true);
@@ -249,7 +292,7 @@ public final class CentralCorePanel extends LinearLayout {
         addSpace(14);
         addView(label("۴) دریافت فایل", 19, true), full());
         addView(label(
-                "نوع داده و بازه شماره‌ها را انتخاب کن؛ مثلا کاربر دارای شماره یا گروه پیداشده شماره ۵۰۰ تا ۱۰۰۰.",
+                "نوع داده و بازه شماره‌ها را انتخاب کن؛ مثلا مخاطب تلگرام یا گروه پیداشده شماره ۵۰۰ تا ۱۰۰۰.",
                 12,
                 false
         ), full());
@@ -258,7 +301,7 @@ public final class CentralCorePanel extends LinearLayout {
         ArrayAdapter<String> exportEntityAdapter = new ArrayAdapter<>(
                 context,
                 android.R.layout.simple_spinner_item,
-                new String[]{"کاربران دارای شماره", "گروه‌های پیداشده"}
+                new String[]{"مخاطبین تلگرام", "گروه‌های پیداشده"}
         );
         exportEntityAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         exportEntitySpinner.setAdapter(exportEntityAdapter);
@@ -303,14 +346,20 @@ public final class CentralCorePanel extends LinearLayout {
         CentralCore.Listener panelListener = new CentralCore.Listener() {
             @Override
             public void onStatus(String message) {
-                post(() -> statusText.setText(message));
+                post(() -> {
+                    if (uiClosed) return;
+                    statusText.setText(message);
+                    notifyCoreDataChanged();
+                });
             }
 
             @Override
             public void onDataChanged() {
                 post(() -> {
+                    if (uiClosed) return;
                     refreshPhotoStatus();
                     refreshSummary();
+                    notifyCoreDataChanged();
                 });
             }
         };
@@ -362,6 +411,7 @@ public final class CentralCorePanel extends LinearLayout {
         refreshTargets();
         refreshGroups();
         refreshContacts();
+        refreshContactsLoadStatus();
         refreshPhotoStatus();
         refreshSummary();
     }
@@ -463,7 +513,60 @@ public final class CentralCorePanel extends LinearLayout {
         scheduleDiscoveryRefresh();
     }
 
+    public void onContactsLoadChanged() {
+        if (uiClosed) return;
+        refreshContactsLoadStatus();
+    }
+
+    private void refreshContactsLoadStatus() {
+        contactsLoadStatusText.setText(telegram.getContactsLoadMessage());
+        refreshContactsButton.setEnabled(!telegram.isLoadingTelegramContacts());
+    }
+
+    private void searchContact() {
+        String phone = contactPhoneInput.getText().toString().trim();
+        if (phone.isEmpty()) {
+            contactPhoneInput.setError("شماره مخاطب را وارد کن.");
+            contactSearchStatusText.setText("شماره مخاطب خالی است.");
+            return;
+        }
+        contactPhoneInput.setError(null);
+        final long request = ++phoneSearchRequest;
+        contactSearchButton.setEnabled(false);
+        contactSearchStatusText.setText("در حال جستجوی شماره در تلگرام...");
+        contactSearchResultText.setText("");
+        telegram.searchContactByPhone(phone, (success, contact, message) -> post(() -> {
+            if (uiClosed || request != phoneSearchRequest) return;
+            contactSearchButton.setEnabled(true);
+            contactSearchStatusText.setText(message);
+            if (success && contact != null) {
+                contactSearchResultText.setText(
+                        "اسم: " + contact.name + "\nشماره تلفن: " + contact.phone
+                                + "\nشناسه تلگرام: " + contact.id
+                );
+                refreshContacts();
+                refreshSummary();
+            }
+        }));
+    }
+
+    public void setCoreDataChangedListener(Runnable listener) {
+        coreDataChangedListener = listener;
+    }
+
+    private void notifyCoreDataChanged() {
+        if (coreDataChangedListener != null) coreDataChangedListener.run();
+    }
+
+    public void detachUiCallbacks() {
+        uiClosed = true;
+        phoneSearchRequest++;
+        coreDataChangedListener = null;
+        removeCallbacks(discoveryRefresh);
+    }
+
     private void scheduleDiscoveryRefresh() {
+        if (uiClosed) return;
         if (discoveryRefreshPending) return;
         discoveryRefreshPending = true;
         postDelayed(discoveryRefresh, 150L);
@@ -560,7 +663,7 @@ public final class CentralCorePanel extends LinearLayout {
                         + " | گروه هدف: " + core.selectedGroupCount()
                         + " | ارسال موفق: " + core.getSentCount()
                         + "\nگروه پیدا‌شده: " + telegram.getFoundGroupCount()
-                        + " | کاربر دارای شماره: " + telegram.getObservedUserCount()
+                        + " | مخاطب تلگرام: " + telegram.getObservedUserCount()
                         + " | صف هوشمند: " + core.queueSize() + " واژه"
         );
 
@@ -629,7 +732,7 @@ public final class CentralCorePanel extends LinearLayout {
     private void refreshContacts() {
         List<TelegramClientManager.ContactInfo> contacts = telegram.getTelegramContacts();
         if (contacts.isEmpty()) {
-            contactsText.setText("هنوز کاربر جدیدی با شماره تلفن قابل مشاهده ثبت نشده است.");
+            contactsText.setText("هنوز مخاطبی ثبت نشده است؛ شماره‌ای را جستجو کن یا مخاطبین تلگرام را دریافت کن.");
             return;
         }
 
@@ -639,7 +742,8 @@ public final class CentralCorePanel extends LinearLayout {
             TelegramClientManager.ContactInfo contact = contacts.get(i);
             out.append("شماره: ").append(contact.number).append('\n');
             out.append("اسم: ").append(contact.name).append('\n');
-            out.append("شماره تلفن: ").append(contact.phone).append('\n');
+            out.append("شماره تلفن: ").append(contact.phone.isEmpty()
+                    ? "در دسترس نیست (حریم خصوصی تلگرام)" : contact.phone).append('\n');
             out.append("────────────").append('\n');
         }
         contactsText.setText(out.toString());

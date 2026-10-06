@@ -207,8 +207,8 @@ public class CentralCoreTest {
         runImmediateTasks();
         assertTrue(core.isEnabled());
         assertEquals(1, sentMessages().size());
-        assertEquals(1, delayed.size());
-        assertTrue(delayed.get(0).delay >= 300_000L);
+        assertFalse(delayed.isEmpty());
+        assertTrue(delayed.stream().allMatch(task -> task.delay >= 300_000L));
     }
 
     private void runImmediateTasks() {

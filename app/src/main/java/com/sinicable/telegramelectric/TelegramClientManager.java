@@ -18,6 +18,10 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.logging.Logger;
 
 public final class TelegramClientManager {
     public enum AuthStep {
@@ -33,6 +37,7 @@ public final class TelegramClientManager {
         default void onTargetGroupsLoadChanged() { }
         void onFoundGroupsChanged();
         void onObservedUsersChanged();
+        default void onContactsLoadChanged() { }
         void onError(String message);
         void onMessageText(String text);
     }
@@ -44,6 +49,22 @@ public final class TelegramClientManager {
 
     private static final Object TDJNI_LOCK = new Object();
     private static volatile boolean tdjniLoaded = false;
+    private static final Logger SEARCH_LOG = Logger.getLogger("Laleh.TelegramSearch");
+    private static final long REQUEST_TIMEOUT_SECONDS = 30;
+    private static final java.util.concurrent.ScheduledThreadPoolExecutor REQUEST_TIMER = newRequestTimer();
+    private static final java.util.concurrent.atomic.AtomicLong NEXT_REQUEST_ID =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    private static java.util.concurrent.ScheduledThreadPoolExecutor newRequestTimer() {
+        java.util.concurrent.ScheduledThreadPoolExecutor executor =
+                new java.util.concurrent.ScheduledThreadPoolExecutor(1, task -> {
+                    Thread thread = new Thread(task, "telegram-search-deadlines");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+        executor.setRemoveOnCancelPolicy(true);
+        return executor;
+    }
 
     private final Context context;
     private volatile Listener listener;
@@ -63,6 +84,9 @@ public final class TelegramClientManager {
     private final Map<Long, Long> supergroupChatIds = new ConcurrentHashMap<>();
     private final Map<Long, Long> basicGroupChatIds = new ConcurrentHashMap<>();
     private final java.util.Set<Long> directSenderIds = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<Long> contactUserIds = ConcurrentHashMap.newKeySet();
+    private final java.util.Set<Long> searchedUserIds = ConcurrentHashMap.newKeySet();
+    private final Map<Long, String> lookupPhoneNumbers = new ConcurrentHashMap<>();
     private final java.util.concurrent.ExecutorService runtimeExecutor =
             java.util.concurrent.Executors.newSingleThreadExecutor();
     private final java.util.concurrent.ExecutorService storageExecutor =
@@ -82,6 +106,10 @@ public final class TelegramClientManager {
     private final java.util.concurrent.atomic.AtomicInteger targetLoadGeneration =
             new java.util.concurrent.atomic.AtomicInteger();
     private volatile String targetGroupsLoadMessage = "برای دریافت گروه‌های عضو، ابتدا وارد حساب تلگرام شو.";
+    private final AtomicBoolean contactsLoading = new AtomicBoolean();
+    private final java.util.concurrent.atomic.AtomicInteger contactsLoadGeneration =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private volatile String contactsLoadMessage = "برای دریافت مخاطبین، وارد حساب تلگرام شو.";
 
 
     public static final class GroupInfo {
@@ -168,6 +196,14 @@ public final class TelegramClientManager {
 
     public interface DiscoveryCallback {
         void onResult(boolean success, int newItems, int totalItems, String message);
+        default void onDetailedResult(boolean success, int newItems, int totalItems,
+                                      String message, List<Long> resultIds) {
+            onResult(success, newItems, totalItems, message);
+        }
+    }
+
+    public interface PhoneSearchCallback {
+        void onResult(boolean success, ContactInfo contact, String message);
     }
 
     public TelegramClientManager(Context context, Listener listener) {
@@ -260,6 +296,14 @@ public final class TelegramClientManager {
         basicGroupCache.clear();
         supergroupChatIds.clear();
         basicGroupChatIds.clear();
+        userCache.clear();
+        directSenderIds.clear();
+        contactUserIds.clear();
+        searchedUserIds.clear();
+        contactsLoadGeneration.incrementAndGet();
+        contactsLoading.set(false);
+        contactsLoadMessage = "در انتظار ورود و دریافت مخاطبین حساب...";
+        listener.onContactsLoadChanged();
         targetGroupsLoadMessage = "در انتظار ورود و دریافت گروه‌های حساب...";
         listener.onTargetGroupsLoadChanged();
 
@@ -376,6 +420,194 @@ public final class TelegramClientManager {
 
     public int getObservedUserCount() {
         return observedUsers.size();
+    }
+
+    /** Resolves a phone on Telegram without importing it or changing the account's contacts. */
+    public void searchContactByPhone(String input, PhoneSearchCallback callback) {
+        final String phone;
+        try {
+            phone = PhoneNumberNormalizer.normalize(input);
+        } catch (IllegalArgumentException error) {
+            SEARCH_LOG.info("phone_lookup rejected: invalid_number");
+            if (callback != null) callback.onResult(false, null, error.getMessage());
+            return;
+        }
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            SEARCH_LOG.info("phone_lookup rejected: authorization=" + currentStep);
+            if (callback != null) callback.onResult(false, null, "برای جستجوی شماره، ابتدا وارد حساب تلگرام شو.");
+            return;
+        }
+        if (!connectionReady) {
+            SEARCH_LOG.info("phone_lookup rejected: connection_not_ready");
+            if (callback != null) callback.onResult(false, null,
+                    "اتصال تلگرام آماده نیست؛ شبکه یا پروکسی را بررسی کن و دوباره جستجو کن.");
+            return;
+        }
+        sendSearchRequest(local, new TdApi.SearchUserByPhoneNumber(phone, false), "phone_lookup", result -> {
+            if (result instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) result;
+                String message = error.code == 404
+                        ? "مخاطبی برای این شماره در تلگرام پیدا نشد (404). ممکن است محدودیت حریم خصوصی داشته باشد."
+                        : searchErrorMessage(error);
+                if (callback != null) callback.onResult(false, null, message);
+                return;
+            }
+            if (!(result instanceof TdApi.User) || ((TdApi.User) result).id == 0L) {
+                if (callback != null) callback.onResult(false, null, "پاسخ جستجوی شماره از تلگرام معتبر نبود.");
+                return;
+            }
+            TdApi.User user = (TdApi.User) result;
+            userCache.put(user.id, user);
+            searchedUserIds.add(user.id);
+            lookupPhoneNumbers.put(user.id, phone);
+            storeContactUser(user, phone);
+            ContactInfo contact = observedUsers.get(user.id);
+            if (callback != null) callback.onResult(true, contact, "مخاطب از تلگرام دریافت شد.");
+        });
+    }
+
+    public boolean isLoadingTelegramContacts() {
+        return contactsLoading.get();
+    }
+
+    public String getContactsLoadMessage() {
+        return contactsLoadMessage;
+    }
+
+    /** Loads the signed-in account's Telegram contacts; Android phone-book access isn't needed. */
+    public void refreshTelegramContacts() {
+        Client local = client;
+        if (local == null || currentStep != AuthStep.READY) {
+            contactsLoadMessage = "برای دریافت مخاطبین، ابتدا وارد حساب تلگرام شو.";
+            listener.onContactsLoadChanged();
+            return;
+        }
+        if (!contactsLoading.compareAndSet(false, true)) return;
+        int generation = contactsLoadGeneration.incrementAndGet();
+        contactsLoadMessage = "در حال دریافت مخاطبین حساب از تلگرام...";
+        listener.onContactsLoadChanged();
+        sendSearchRequest(local, new TdApi.GetContacts(), "contacts_refresh", result -> {
+            if (generation != contactsLoadGeneration.get()) return;
+            if (result instanceof TdApi.Error) {
+                finishContactLoad(generation, searchErrorMessage((TdApi.Error) result));
+                return;
+            }
+            if (!(result instanceof TdApi.Users)) {
+                finishContactLoad(generation, "پاسخ فهرست مخاطبین از تلگرام معتبر نبود.");
+                return;
+            }
+            long[] ids = ((TdApi.Users) result).userIds;
+            if (ids == null) ids = new long[0];
+            contactUserIds.clear();
+            List<Long> missing = new ArrayList<>();
+            for (long id : ids) {
+                contactUserIds.add(id);
+                TdApi.User user = userCache.get(id);
+                if (user == null) missing.add(id);
+                else storeContactUser(user, "");
+            }
+            // TDLib normally sends updateUser before the result. Recover an incomplete cache
+            // sequentially so a large contact list cannot create an unbounded request burst.
+            loadMissingContact(local, missing, 0, generation, ids.length, "");
+        });
+    }
+
+    private void loadMissingContact(Client local, List<Long> missing, int index,
+                                    int generation, int total, String failure) {
+        if (generation != contactsLoadGeneration.get()) return;
+        if (index >= missing.size()) {
+            finishContactLoad(generation, failure.isEmpty()
+                    ? total + " مخاطب حساب از تلگرام دریافت شد."
+                    : "دریافت مخاطبین کامل نشد: " + failure);
+            return;
+        }
+        sendSearchRequest(local, new TdApi.GetUser(missing.get(index)), "contact_cache_recovery", result -> {
+            if (generation != contactsLoadGeneration.get()) return;
+            String nextFailure = failure;
+            if (result instanceof TdApi.User) {
+                TdApi.User user = (TdApi.User) result;
+                userCache.put(user.id, user);
+                storeContactUser(user, "");
+            } else if (nextFailure.isEmpty()) {
+                nextFailure = result instanceof TdApi.Error
+                        ? searchErrorMessage((TdApi.Error) result) : "پاسخ مخاطب نامعتبر بود.";
+            }
+            if (result instanceof TdApi.Error) {
+                int code = ((TdApi.Error) result).code;
+                if (code == 401 || code == 408 || code == 429 || code >= 500) {
+                    finishContactLoad(generation, "دریافت مخاطبین کامل نشد: " + nextFailure);
+                    return;
+                }
+            }
+            String capturedFailure = nextFailure;
+            runtimeExecutor.execute(() -> loadMissingContact(local, missing, index + 1,
+                    generation, total, capturedFailure));
+        });
+    }
+
+    private void finishContactLoad(int generation, String message) {
+        if (generation != contactsLoadGeneration.get()) return;
+        contactsLoading.set(false);
+        contactsLoadMessage = message;
+        listener.onContactsLoadChanged();
+    }
+
+    /** Completes every request once, including timeouts, transport failures and changed sessions. */
+    private void sendSearchRequest(Client local, TdApi.Function request, String operation,
+                                   Client.ResultHandler handler) {
+        long requestId = NEXT_REQUEST_ID.incrementAndGet();
+        AtomicBoolean completed = new AtomicBoolean();
+        SEARCH_LOG.info("request=" + requestId + " operation=" + operation
+                + " auth=" + currentStep + " connected=" + connectionReady);
+        ScheduledFuture<?> deadline = REQUEST_TIMER.schedule(() -> {
+            if (!completed.compareAndSet(false, true)) return;
+            SEARCH_LOG.warning("request=" + requestId + " operation=" + operation + " timeout");
+            handler.onResult(new TdApi.Error(408, "زمان پاسخ تلگرام تمام شد؛ اتصال را بررسی و دوباره تلاش کن."));
+        }, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        Client.ResultHandler receive = result -> {
+            if (!completed.compareAndSet(false, true)) return;
+            deadline.cancel(false);
+            TdApi.Object safeResult = result;
+            if (local != client || currentStep != AuthStep.READY) {
+                safeResult = new TdApi.Error(401, "نشست تلگرام تغییر کرده است؛ پس از ورود دوباره جستجو کن.");
+            }
+            if (safeResult instanceof TdApi.Error) {
+                TdApi.Error error = (TdApi.Error) safeResult;
+                SEARCH_LOG.warning("request=" + requestId + " operation=" + operation
+                        + " code=" + error.code + " error=" + redactSearchMessage(error.message));
+            } else {
+                SEARCH_LOG.info("request=" + requestId + " operation=" + operation + " response="
+                        + (safeResult == null ? "null" : safeResult.getClass().getSimpleName()));
+            }
+            handler.onResult(safeResult);
+        };
+        if (local != client || currentStep != AuthStep.READY) {
+            receive.onResult(new TdApi.Error(401, "نشست تلگرام آماده نیست."));
+            return;
+        }
+        try {
+            local.send(request, receive);
+        } catch (Throwable error) {
+            receive.onResult(new TdApi.Error(503,
+                    "ارسال درخواست تلگرام ناموفق بود: " + error.getClass().getSimpleName()));
+        }
+    }
+
+    private static String searchErrorMessage(TdApi.Error error) {
+        String detail = redactSearchMessage(error.message);
+        if (error.code == 429 || detail.contains("FLOOD_WAIT")) {
+            return "تلگرام موقتاً جستجو را محدود کرده؛ بعداً تلاش کن. Telegram " + error.code + ": " + detail;
+        }
+        if (error.code == 401) return "ورود یا نشست تلگرام معتبر نیست. Telegram 401: " + detail;
+        if (error.code == 403) return "تلگرام اجازهٔ این جستجو را نمی‌دهد. Telegram 403: " + detail;
+        return "Telegram " + error.code + ": " + detail;
+    }
+
+    private static String redactSearchMessage(String message) {
+        if (message == null || message.trim().isEmpty()) return "خطای نامشخص";
+        return message.replaceAll("\\+?[\\p{Nd}][\\p{Nd} ()\\-.]{5,}[\\p{Nd}]", "[شماره حذف شد]")
+                .replaceAll("[\\r\\n]+", " ");
     }
 
     public GroupInfo getGroup(long chatId) {
@@ -527,11 +759,11 @@ public final class TelegramClientManager {
         Client local = client;
         String clean = query == null ? "" : query.trim();
         if (local == null || currentStep != AuthStep.READY) {
-            if (callback != null) callback.onResult(false, 0, 0, "تلگرام آماده جستجو نیست.");
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
         }
         if (clean.length() < 2) {
-            if (callback != null) callback.onResult(false, 0, 0, "عبارت جستجو کوتاه است.");
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "عبارت جستجو کوتاه است.");
             return;
         }
 
@@ -561,94 +793,140 @@ public final class TelegramClientManager {
 
             request = (TdApi.Function) instance;
         } catch (Throwable error) {
-            if (callback != null) {
-                callback.onResult(false, 0, 0, "ساخت جستجوی عمومی ناموفق بود: " + safeMessage(error));
-            }
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(),
+                    "ساخت جستجوی عمومی ناموفق بود: " + error.getClass().getSimpleName());
             return;
         }
 
-        local.send(request, result -> {
-            if (result instanceof TdApi.Error) {
-                TdApi.Error error = (TdApi.Error) result;
-                if (callback != null) {
-                    callback.onResult(false, 0, 0, "Telegram " + error.code + ": " + error.message);
-                }
-                return;
-            }
-
-            if (!(result instanceof TdApi.Chats)) {
-                if (callback != null) callback.onResult(true, 0, 0, "نتیجه گروهی پیدا نشد.");
-                return;
-            }
-
-            long[] ids = ((TdApi.Chats) result).chatIds;
-            if (ids == null || ids.length == 0) {
-                if (callback != null) callback.onResult(true, 0, 0, "نتیجه گروهی پیدا نشد.");
-                return;
-            }
-
-            int newItems = 0;
-            int validItems = 0;
-            for (long chatId : ids) {
-                TdApi.Chat chat = chatCache.get(chatId);
-                if (chat == null || !isGroupChat(chat)) continue;
-                validItems++;
-                boolean isNew = !foundGroups.containsKey(chat.id);
-                captureSearchResult(chat);
-                if (isNew) newItems++;
-            }
-            if (callback != null) {
-                callback.onResult(true, newItems, validItems, "جستجوی عمومی برای نمایش کامل شد.");
-            }
-        });
+        GroupSearchResults collected = startGroupSearchOperation(callback);
+        sendSearchRequest(local, request, "public_group_search",
+                result -> processGroupSearchResult(local, result, true, collected, callback));
     }
 
     public void searchKnownGroups(String query, DiscoveryCallback callback) {
         Client local = client;
         String clean = query == null ? "" : query.trim();
         if (local == null || currentStep != AuthStep.READY) {
-            if (callback != null) callback.onResult(false, 0, 0, "تلگرام آماده جستجو نیست.");
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
         }
         if (clean.length() < 2) {
-            if (callback != null) callback.onResult(false, 0, 0, "عبارت جستجو کوتاه است.");
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "عبارت جستجو کوتاه است.");
             return;
         }
 
-        local.send(new TdApi.SearchChats(clean, null, 50), result -> {
-            if (result instanceof TdApi.Error) {
-                TdApi.Error error = (TdApi.Error) result;
-                if (callback != null) {
-                    callback.onResult(false, 0, 0, "Telegram " + error.code + ": " + error.message);
-                }
-                return;
-            }
+        GroupSearchResults collected = startGroupSearchOperation(callback);
+        sendSearchRequest(local, new TdApi.SearchChats(clean, null, 50), "known_group_search",
+                result -> processGroupSearchResult(local, result, false, collected, callback));
+    }
 
-            if (!(result instanceof TdApi.Chats)) {
-                if (callback != null) callback.onResult(true, 0, 0, "گروهی در چت‌های حساب پیدا نشد.");
-                return;
-            }
+    private static final class GroupSearchResults {
+        final List<Long> ids = new ArrayList<>();
+        final AtomicBoolean finished = new AtomicBoolean();
+        ScheduledFuture<?> deadline;
+        int newItems;
+    }
 
-            long[] ids = ((TdApi.Chats) result).chatIds;
-            if (ids == null || ids.length == 0) {
-                if (callback != null) callback.onResult(true, 0, 0, "گروهی در چت‌های حساب پیدا نشد.");
-                return;
-            }
+    private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback) {
+        GroupSearchResults collected = new GroupSearchResults();
+        collected.deadline = REQUEST_TIMER.schedule(() -> finishGroupSearch(collected, callback,
+                false, "Telegram 408: زمان دریافت کامل نتایج تمام شد؛ دوباره تلاش کن."),
+                60, TimeUnit.SECONDS);
+        return collected;
+    }
 
-            int newItems = 0;
-            int validItems = 0;
-            for (long chatId : ids) {
-                TdApi.Chat chat = chatCache.get(chatId);
-                if (chat == null || !isGroupChat(chat)) continue;
-                validItems++;
+    private static void finishGroupSearch(GroupSearchResults collected, DiscoveryCallback callback,
+                                           boolean success, String message) {
+        List<Long> ids;
+        int newItems;
+        synchronized (collected) {
+            if (!collected.finished.compareAndSet(false, true)) return;
+            collected.deadline.cancel(false);
+            ids = new ArrayList<>(collected.ids);
+            newItems = collected.newItems;
+        }
+        discoveryResult(callback, success, newItems, ids, message);
+    }
+
+    private void processGroupSearchResult(Client local, TdApi.Object result, boolean publicSearch,
+                                           GroupSearchResults collected, DiscoveryCallback callback) {
+        if (collected.finished.get()) return;
+        if (result instanceof TdApi.Error) {
+            finishGroupSearch(collected, callback, false,
+                    searchErrorMessage((TdApi.Error) result));
+            return;
+        }
+        if (!(result instanceof TdApi.Chats)) {
+            finishGroupSearch(collected, callback, false,
+                    "پاسخ جستجوی گروه از تلگرام معتبر نبود.");
+            return;
+        }
+        long[] ids = ((TdApi.Chats) result).chatIds;
+        List<Long> missing = new ArrayList<>();
+        java.util.Set<Long> seen = new java.util.HashSet<>();
+        if (ids != null) {
+            for (long id : ids) {
+                if (!seen.add(id)) continue;
+                TdApi.Chat chat = chatCache.get(id);
+                if (chat == null) missing.add(id);
+                else collectGroupSearchResult(chat, publicSearch, collected);
+            }
+        }
+        recoverMissingSearchChat(local, missing, 0, publicSearch, collected, callback);
+    }
+
+    private void collectGroupSearchResult(TdApi.Chat chat, boolean publicSearch,
+                                           GroupSearchResults collected) {
+        if (!isGroupChat(chat)) return;
+        synchronized (collected) {
+            if (collected.finished.get()) return;
+            collected.ids.add(chat.id);
+            if (publicSearch) {
+                boolean isNew = !foundGroups.containsKey(chat.id);
+                captureSearchResult(chat);
+                if (isNew) collected.newItems++;
+            } else {
                 boolean wasKnown = targetGroups.containsKey(chat.id);
                 inspectTargetGroup(chat);
-                if (!wasKnown && targetGroups.containsKey(chat.id)) newItems++;
+                if (!wasKnown && targetGroups.containsKey(chat.id)) collected.newItems++;
             }
-            if (callback != null) {
-                callback.onResult(true, newItems, validItems, "جستجوی گروه‌های موجود در حساب کامل شد.");
-            }
-        });
+        }
+    }
+
+    private void recoverMissingSearchChat(Client local, List<Long> missing, int index,
+                                           boolean publicSearch, GroupSearchResults collected,
+                                           DiscoveryCallback callback) {
+        if (collected.finished.get()) return;
+        if (index >= missing.size()) {
+            String message = collected.ids.isEmpty() ? "نتیجه گروهی پیدا نشد."
+                    : "جستجوی گروه‌ها کامل شد.";
+            finishGroupSearch(collected, callback, true, message);
+            return;
+        }
+        synchronized (collected) {
+            if (collected.finished.get()) return;
+            sendSearchRequest(local, new TdApi.GetChat(missing.get(index)), "search_chat_cache_recovery", result -> {
+                if (collected.finished.get()) return;
+                if (!(result instanceof TdApi.Chat)) {
+                    String message = result instanceof TdApi.Error
+                            ? searchErrorMessage((TdApi.Error) result) : "اطلاعات نتیجهٔ جستجو معتبر نبود.";
+                    finishGroupSearch(collected, callback, false,
+                            "دریافت نتایج جستجو کامل نشد: " + message);
+                    return;
+                }
+                TdApi.Chat chat = (TdApi.Chat) result;
+                chatCache.put(chat.id, chat);
+                collectGroupSearchResult(chat, publicSearch, collected);
+                runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
+                        publicSearch, collected, callback));
+            });
+        }
+    }
+
+    private static void discoveryResult(DiscoveryCallback callback, boolean success, int newItems,
+                                         List<Long> ids, String message) {
+        if (callback != null) callback.onDetailedResult(success, newItems, ids.size(), message,
+                java.util.Collections.unmodifiableList(new ArrayList<>(ids)));
     }
 
     public void setProxyFromLink(String link) {
@@ -951,9 +1229,10 @@ public final class TelegramClientManager {
             TdApi.User user = ((TdApi.UpdateUser) object).user;
             if (user != null) {
                 userCache.put(user.id, user);
-                if (directSenderIds.contains(user.id)) {
-                    storeDirectUserIfPhoneVisible(user);
-                }
+                if (contactUserIds.contains(user.id) || searchedUserIds.contains(user.id)
+                        || lookupPhoneNumbers.containsKey(user.id)
+                        || user.isContact) storeContactUser(user, "");
+                else if (directSenderIds.contains(user.id)) storeDirectUserIfPhoneVisible(user);
             }
             return;
         }
@@ -1147,18 +1426,20 @@ public final class TelegramClientManager {
     }
 
     private boolean storeDirectUserIfPhoneVisible(TdApi.User user) {
-        String phone = "";
-        try {
-            Field field = user.getClass().getField("phoneNumber");
-            Object value = field.get(user);
-            if (value instanceof String) {
-                phone = ((String) value).trim();
-            }
-        } catch (Throwable ignored) {
-        }
+        if (user.phoneNumber == null || user.phoneNumber.trim().isEmpty()) return false;
+        return storeContactUser(user, "");
+    }
 
-        if (phone.isEmpty()) {
-            return false;
+    private synchronized boolean storeContactUser(TdApi.User user, String fallbackPhone) {
+        String phone = user.phoneNumber == null ? "" : user.phoneNumber.trim();
+        if (phone.isEmpty()) phone = fallbackPhone;
+        if (phone.isEmpty()) phone = lookupPhoneNumbers.getOrDefault(user.id, "");
+        if (!phone.isEmpty()) {
+            try {
+                phone = PhoneNumberNormalizer.normalize(phone);
+            } catch (IllegalArgumentException ignored) {
+                // Keep the server-provided value visible even if it doesn't use the expected format.
+            }
         }
 
         String name = ((user.firstName == null ? "" : user.firstName) + " "
@@ -1374,7 +1655,7 @@ public final class TelegramClientManager {
         request.systemLanguageCode = "fa";
         request.deviceModel = Build.MODEL == null ? "Android" : Build.MODEL;
         request.systemVersion = Build.VERSION.RELEASE == null ? "Android" : Build.VERSION.RELEASE;
-        request.applicationVersion = "1.12.0";
+        request.applicationVersion = "1.13.0";
 
         sendAuth(request);
     }
@@ -1399,6 +1680,10 @@ public final class TelegramClientManager {
         client = null;
         currentStep = AuthStep.IDLE;
         connectionReady = false;
+        contactsLoadGeneration.incrementAndGet();
+        contactsLoading.set(false);
+        contactsLoadMessage = "اتصال تلگرام بسته است؛ برای دریافت مخاطبین دوباره وارد شو.";
+        listener.onContactsLoadChanged();
         connectionStatusMessage = "تلگرام: اتصال بسته است.";
         listener.onConnectionStatus(connectionStatusMessage, false);
         apiHash = "";
@@ -1458,7 +1743,7 @@ public final class TelegramClientManager {
 
                 long id = item.optLong("id", 0L);
                 String phone = item.optString("phone", "").trim();
-                if (id == 0L || phone.isEmpty()) continue;
+                if (id == 0L) continue;
 
                 int number = item.optInt("number", 0);
                 if (number <= 0) {
@@ -1474,6 +1759,8 @@ public final class TelegramClientManager {
                         item.optString("name", ""),
                         phone
                 ));
+                String lookupPhone = item.optString("lookupPhone", "");
+                if (!lookupPhone.isEmpty()) lookupPhoneNumbers.put(id, lookupPhone);
             }
 
             if (discoveryPrefs.contains(LEGACY_CONTACTS_JSON)) {
@@ -1483,7 +1770,8 @@ public final class TelegramClientManager {
             if (migrated) {
                 schedulePersistDiscovery();
             }
-        } catch (Throwable ignored) {
+        } catch (Throwable error) {
+            SEARCH_LOG.warning("discovery_load failed=" + error.getClass().getSimpleName());
         }
     }
 
@@ -1527,13 +1815,13 @@ public final class TelegramClientManager {
 
             JSONArray users = new JSONArray();
             for (ContactInfo info : observedUsers.values()) {
-                if (info.phone == null || info.phone.trim().isEmpty()) continue;
-
                 JSONObject item = new JSONObject();
                 item.put("number", info.number);
                 item.put("id", info.id);
                 item.put("name", info.name);
                 item.put("phone", info.phone);
+                String lookupPhone = lookupPhoneNumbers.get(info.id);
+                if (lookupPhone != null) item.put("lookupPhone", lookupPhone);
                 users.put(item);
             }
 
@@ -1542,7 +1830,9 @@ public final class TelegramClientManager {
                     .putString(KEY_OBSERVED_USERS_JSON, users.toString())
                     .remove(LEGACY_CONTACTS_JSON)
                     .apply();
-        } catch (Throwable ignored) {
+        } catch (Throwable error) {
+            SEARCH_LOG.warning("discovery_persist failed=" + error.getClass().getSimpleName());
+            listener.onError("ذخیرهٔ نتایج تلگرام ناموفق بود؛ فضای ذخیره‌سازی برنامه را بررسی کن.");
         }
     }
 
