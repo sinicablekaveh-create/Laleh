@@ -56,21 +56,26 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
             card = new ChatPhoneResultCardView(context);
         }
         ChatPhoneSourceLocator item = items.get(position);
-        card.bind(item.getPhone(), item.getChatTitle(), "", new ChatPhoneResultCardView.ActionListener() {
-            @Override
-            public void onOpenMessage() {
-                TelegramMessageSourceOpener.openMessage(
-                        context,
-                        item.getChatId(),
-                        item.getMessageId()
-                );
-            }
+        card.bind(
+                item.getPhone(),
+                item.getChatTitle(),
+                item.getMessageTime(),
+                new ChatPhoneResultCardView.ActionListener() {
+                    @Override
+                    public void onOpenMessage() {
+                        TelegramMessageSourceOpener.openMessage(
+                                context,
+                                item.getChatId(),
+                                item.getMessageId()
+                        );
+                    }
 
-            @Override
-            public void onOpenTelegram() {
-                TelegramResultOpener.openPhone(context, item.getPhone());
-            }
-        });
+                    @Override
+                    public void onOpenTelegram() {
+                        TelegramResultOpener.openPhone(context, item.getPhone());
+                    }
+                }
+        );
         return card;
     }
 }
