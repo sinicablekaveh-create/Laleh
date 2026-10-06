@@ -2,18 +2,24 @@ package com.sinicable.telegramelectric.groupsearch;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.ArrayList;
 
 public final class GroupKeywordBank {
-    private final Map<String, List<String>> words = new HashMap<>();
+    public static final List<String> ELECTRICAL = Collections.unmodifiableList(Arrays.asList(
+            "برق", "برق صنعتی", "برق ساختمان", "الکتریکی", "تابلو برق"));
+    public static final List<String> INDUSTRY = Collections.unmodifiableList(Arrays.asList(
+            "صنعت", "صنعت ساختمان", "اتوماسیون صنعتی"));
+    public static final List<String> LOCATIONS = Collections.unmodifiableList(Arrays.asList("لاله زار", "بازار برق"));
+    public static final List<String> BUSINESS = Collections.unmodifiableList(Arrays.asList(
+            "فروشندگان برق", "تامین کنندگان برق", "خدمات برق"));
 
-    public GroupKeywordBank() {
-        words.put("برق", Arrays.asList("برق صنعتی", "تابلو برق", "مهندسی برق", "PLC", "الکتریکی"));
-    }
-
+    /** Only phrases actually present in the query; no unrelated keyword expansion. */
     public List<String> related(String keyword) {
-        return words.getOrDefault(keyword, Collections.emptyList());
+        List<String> result = new ArrayList<>();
+        for (List<String> category : Arrays.asList(ELECTRICAL, INDUSTRY, LOCATIONS, BUSINESS)) {
+            for (String phrase : category) if (PersianNormalizer.contains(keyword, phrase)) result.add(phrase);
+        }
+        return result;
     }
 }
