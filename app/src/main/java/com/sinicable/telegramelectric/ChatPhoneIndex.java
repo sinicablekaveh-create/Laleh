@@ -15,7 +15,7 @@ public final class ChatPhoneIndex {
             return false;
         }
 
-        Set<String> found = ChatPhoneNumberExtractor.extract(text);
+        java.util.List<String> found = ChatPhoneNumberExtractor.extract(text);
         return phones.addAll(found);
     }
 

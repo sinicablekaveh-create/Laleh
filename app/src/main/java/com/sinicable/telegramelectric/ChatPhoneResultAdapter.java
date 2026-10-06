@@ -14,7 +14,7 @@ import java.util.List;
  */
 public class ChatPhoneResultAdapter extends BaseAdapter {
     private final Context context;
-    private final List<ChatPhoneResultViewModel> items = new ArrayList<>();
+    private final List<ChatPhoneSourceLocator> items = new ArrayList<>();
 
     public ChatPhoneResultAdapter(Context context) {
         this.context = context;
@@ -23,7 +23,9 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
     public void update(List<ChatPhoneResultViewModel> results) {
         items.clear();
         if (results != null) {
-            items.addAll(results);
+            for (ChatPhoneResultViewModel model : results) {
+                if (model != null) items.addAll(model.getResults());
+            }
         }
         notifyDataSetChanged();
     }
@@ -51,7 +53,15 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
         } else {
             card = new ChatPhoneResultCardView(context);
         }
-        card.bind(items.get(position));
+        ChatPhoneSourceLocator item = items.get(position);
+        card.bind(item.getPhone(), item.getChatTitle(), "", new ChatPhoneResultCardView.ActionListener() {
+            @Override public void onOpenMessage() {
+                TelegramMessageSourceOpener.openMessage(context, item.getChatId(), item.getMessageId());
+            }
+            @Override public void onOpenTelegram() {
+                TelegramResultOpener.openPhone(context, item.getPhone());
+            }
+        });
         return card;
     }
 }
