@@ -344,6 +344,7 @@ public final class MainActivity extends Activity {
         ), matchWrap());
 
         space(root, 22);
+        addGroupDiscoveryPanel(root);
         root.addView(text("بانک واژه برق", 20, true), matchWrap());
 
         CheckBox autoLearnCheck = new CheckBox(this);
@@ -998,6 +999,87 @@ public final class MainActivity extends Activity {
                     refreshWordSearch();
                 })
                 .show();
+    }
+
+    private void addGroupDiscoveryPanel(LinearLayout root) {
+        root.addView(text("کشف گروه‌های تلگرام", 20, true), matchWrap());
+        EditText query = input("مثلاً برق لاله زار", InputType.TYPE_CLASS_TEXT);
+        root.addView(query, matchWrap());
+        LinearLayout suggestions = new LinearLayout(this);
+        suggestions.setOrientation(LinearLayout.VERTICAL);
+        root.addView(suggestions, matchWrap());
+        Button search = button("جستجوی گروه‌ها");
+        root.addView(search, matchWrap());
+        TextView state = text("عبارت را وارد کن یا یک پیشنهاد را انتخاب کن.", 14, false);
+        root.addView(state, matchWrap());
+        LinearLayout cards = new LinearLayout(this);
+        cards.setOrientation(LinearLayout.VERTICAL);
+        root.addView(cards, matchWrap());
+        int[] version = {0};
+        query.addTextChangedListener(new SimpleWatcher() {
+            @Override public void afterTextChanged(Editable value) {
+                version[0]++;
+                search.setEnabled(true);
+                cards.removeAllViews();
+                state.setText("یک پیشنهاد را انتخاب کن یا جستجو را بزن.");
+                suggestions.removeAllViews();
+                java.util.List<String> choices = new com.sinicable.telegramelectric.groupsearch.SearchQueryBuilder()
+                        .build(value.toString());
+                for (String choice : choices) {
+                    Button item = button(choice);
+                    item.setOnClickListener(view -> { query.setText(choice); query.setSelection(query.length()); });
+                    suggestions.addView(item, matchWrap());
+                }
+            }
+        });
+        search.setOnClickListener(view -> {
+            String original = query.getText().toString();
+            String submitted = new com.sinicable.telegramelectric.groupsearch.SearchQueryBuilder().publicQuery(original);
+            if (submitted.isEmpty()) { query.setError("حداقل دو نویسه وارد کن."); return; }
+            int request = ++version[0];
+            search.setEnabled(false);
+            cards.removeAllViews();
+            state.setText("در حال جستجوی گروه‌ها…");
+            telegram.discoverPublicGroupsForReview(submitted, new TelegramClientManager.DiscoveryCallback() {
+                public void onResult(boolean success, int added, int count, String message) {
+                    onDetailedResult(success, added, count, message, java.util.Collections.emptyList());
+                }
+                public void onDetailedResult(boolean success, int added, int count, String message, List<Long> ids) {
+                    runOnUiThread(() -> {
+                        if (isFinishing() || isDestroyed() || version[0] != request) return;
+                        search.setEnabled(true);
+                        state.setText(!success ? message : ids.isEmpty()
+                                ? "گروهی پیدا نشد. عبارت کوتاه‌تر یا پیشنهاد دیگری را امتحان کن."
+                                : "تعداد گروه‌ها: " + ids.size());
+                        for (Long id : ids) {
+                            TelegramClientManager.GroupInfo group = telegram.getGroup(id);
+                            if (group == null) continue;
+                            LinearLayout card = new LinearLayout(MainActivity.this);
+                            card.setOrientation(LinearLayout.VERTICAL);
+                            card.setPadding(dp(12), dp(12), dp(12), dp(12));
+                            card.setBackgroundColor(0xffedf5fa);
+                            card.addView(text(group.title, 17, true), matchWrap());
+                            card.addView(text("امتیاز ارتباط: " + telegram.groupSearchScore(id, submitted) + "/100", 14, false), matchWrap());
+                            card.addView(text(group.link, 14, false), matchWrap());
+                            if (group.link.startsWith("https://t.me/")) {
+                                Button open = button("مشاهده در تلگرام");
+                                open.setOnClickListener(clicked -> {
+                                    try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW,
+                                            android.net.Uri.parse(group.link))); }
+                                    catch (android.content.ActivityNotFoundException error) {
+                                        Toast.makeText(MainActivity.this, "برنامه‌ای برای باز کردن لینک پیدا نشد.", Toast.LENGTH_SHORT).show();
+                                    }
+                                });
+                                card.addView(open, matchWrap());
+                            }
+                            cards.addView(card, matchWrap());
+                            space(cards, 8);
+                        }
+                    });
+                }
+            });
+        });
+        space(root, 22);
     }
 
     private boolean saveWordSearchConfig() {
