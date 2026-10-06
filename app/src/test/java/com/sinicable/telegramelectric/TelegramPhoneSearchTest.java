@@ -214,6 +214,7 @@ public class TelegramPhoneSearchTest {
             assertFalse(success);
             assertTrue(message, message.contains("408"));
         });
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
         List<Runnable> addedDeadlines = new ArrayList<>(timer.getQueue());
         addedDeadlines.removeAll(previousDeadlines);
         assertEquals(1, addedDeadlines.size());
@@ -388,6 +389,7 @@ public class TelegramPhoneSearchTest {
         }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
         DetailedResult result = new DetailedResult();
         manager.discoverPublicGroupsForReview("برق", result);
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
         List<Runnable> addedDeadlines = new ArrayList<>(timer.getQueue());
         addedDeadlines.removeAll(previousDeadlines);
         Runnable wholeDeadline = addedDeadlines.stream()
@@ -404,6 +406,111 @@ public class TelegramPhoneSearchTest {
         assertEquals("Must not fetch the next missing chat after the operation ended", 2, requests.size());
         assertEquals(1, result.calls.get());
         assertEquals(1, manager.getFoundGroups().size());
+    }
+
+    @Test public void groupDiscoveryCoalescesDuplicatesAndCachesSuccessOnly() throws Exception {
+        AtomicReference<Client.ResultHandler> pending = new AtomicReference<>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            pending.set(call.getArgument(1));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult first = new DetailedResult();
+        DetailedResult second = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", first);
+        manager.discoverPublicGroupsForReview("گروه برق", second);
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
+        assertEquals(1, requests.size());
+        assertEquals("گروه برق", ((TdApi.SearchPublicChats) requests.get(0)).query);
+        pending.get().onResult(new TdApi.Error(429, "FLOOD_WAIT_30"));
+        assertTrue(first.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(second.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(first.success);
+        assertFalse(second.success);
+        DetailedResult retry = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", retry);
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
+        assertEquals(2, requests.size());
+        pending.get().onResult(chats());
+        assertTrue(retry.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(retry.success);
+        DetailedResult cached = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", cached);
+        assertTrue(cached.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(cached.success);
+        assertEquals(2, requests.size());
+        assertEquals(0, cached.newItems);
+    }
+
+    @Test public void publicDiscoveryFiltersChannelsAndRanksBeforeReturningIds() throws Exception {
+        TdApi.Chat exact = group(-1L);
+        exact.title = "گروه برق لاله زار";
+        TdApi.Chat weaker = group(-2L);
+        weaker.title = "برق تهران";
+        TdApi.Chat channel = group(-3L);
+        TdApi.ChatTypeSupergroup channelType = new TdApi.ChatTypeSupergroup();
+        channelType.isChannel = true;
+        channel.type = channelType;
+        update(new TdApi.UpdateNewChat(exact));
+        update(new TdApi.UpdateNewChat(weaker));
+        update(new TdApi.UpdateNewChat(channel));
+        response = chats(-2L, -3L, -1L, -1L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق لاله زار", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        assertEquals(List.of(-1L, -2L), result.ids);
+        assertEquals(100, manager.groupSearchScore(-1L, "برق لاله زار"));
+    }
+
+    @Test public void closingSessionInvalidatesPendingDiscoveryAndItsCache() throws Exception {
+        AtomicReference<Client.ResultHandler> pending = new AtomicReference<>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            pending.set(call.getArgument(1));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult first = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", first);
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
+        update(new TdApi.UpdateAuthorizationState(new TdApi.AuthorizationStateClosing()));
+        pending.get().onResult(chats());
+        assertTrue(first.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(first.success);
+        setField("currentStep", TelegramClientManager.AuthStep.READY);
+        DetailedResult retry = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", retry);
+        ((ExecutorService) getField("runtimeExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
+        assertEquals(2, requests.size());
+        pending.get().onResult(chats());
+        assertTrue(retry.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(retry.success);
+    }
+
+    @Test public void successfulSearchRecordsSurviveManagerRecreation() throws Exception {
+        tearDown();
+        TestPreferences storage = new TestPreferences();
+        manager = new TelegramClientManager(storage.context, listener);
+        setField("client", transport);
+        setField("currentStep", TelegramClientManager.AuthStep.READY);
+        setField("connectionReady", true);
+        TdApi.Chat match = group(-10L);
+        match.title = "گروه برق لاله زار";
+        update(new TdApi.UpdateNewChat(match));
+        response = chats(-10L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق لاله زار", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        ((ExecutorService) getField("storageExecutor")).submit(() -> {}).get(3, TimeUnit.SECONDS);
+        tearDown();
+        manager = new TelegramClientManager(storage.context, listener);
+        java.util.List<com.sinicable.telegramelectric.groupsearch.GroupSearchRecord> records = manager.getGroupSearchRecords();
+        assertEquals(1, records.size());
+        assertEquals(-10L, records.get(0).groupId);
+        assertEquals(100, records.get(0).score);
+        assertEquals("گروه برق لاله زار", records.get(0).query);
+        assertEquals(com.sinicable.telegramelectric.groupsearch.GroupSearchRecord.Source.ANDROID, records.get(0).source);
     }
 
     private static final class DetailedResult implements TelegramClientManager.DiscoveryCallback {

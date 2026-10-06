@@ -326,11 +326,14 @@ public class TelegramClientManagerTest {
     public void publicSearchReadsResultsFromCacheWithoutPerChatRequests() throws Exception {
         List<TdApi.Function> requests = prepareSearchTransport();
         int[] counts = {-1, -1};
+        CountDownLatch completed = new CountDownLatch(1);
         manager.discoverPublicGroupsForReview("برق", (success, fresh, total, message) -> {
             assertTrue(success);
             counts[0] = fresh;
             counts[1] = total;
+            completed.countDown();
         });
+        assertTrue(completed.await(3, TimeUnit.SECONDS));
         assertArrayEquals(new int[] {1, 1}, counts);
         assertEquals(1, manager.getFoundGroups().size());
         assertEquals(1, requests.size());

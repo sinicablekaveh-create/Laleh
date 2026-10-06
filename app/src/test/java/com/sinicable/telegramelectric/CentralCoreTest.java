@@ -25,7 +25,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 public class CentralCoreTest {
-    private final ArrayDeque<Runnable> immediate = new ArrayDeque<>();
+    private final java.util.Queue<Runnable> immediate = new java.util.concurrent.ConcurrentLinkedQueue<>();
     private final List<Scheduled> delayed = new ArrayList<>();
     private final List<TdApi.Function> requests = new ArrayList<>();
     private final List<String> statuses = new ArrayList<>();
@@ -212,8 +212,20 @@ public class CentralCoreTest {
     }
 
     private void runImmediateTasks() {
-        for (int i = 0; !immediate.isEmpty() && i < 20; i++) immediate.remove().run();
-        assertTrue("Unexpected immediate task loop", immediate.isEmpty());
+        try {
+            Field field = TelegramClientManager.class.getDeclaredField("runtimeExecutor");
+            field.setAccessible(true);
+            ExecutorService worker = (ExecutorService) field.get(telegram);
+            for (int i = 0; i < 20; i++) {
+                Runnable task;
+                while ((task = immediate.poll()) != null) task.run();
+                // Discovery submission and its completion each take one worker turn.
+                worker.submit(() -> {}).get(3, java.util.concurrent.TimeUnit.SECONDS);
+                worker.submit(() -> {}).get(3, java.util.concurrent.TimeUnit.SECONDS);
+                if (immediate.isEmpty()) return;
+            }
+            fail("Unexpected immediate task loop");
+        } catch (Exception error) { throw new AssertionError(error); }
     }
 
     private List<TdApi.SendMessage> sentMessages() {
