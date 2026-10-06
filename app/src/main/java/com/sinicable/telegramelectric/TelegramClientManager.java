@@ -1,5 +1,7 @@
 package com.sinicable.telegramelectric;
 
+import com.sinicable.telegramelectric.groupsearch.*;
+
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
@@ -290,6 +292,7 @@ public final class TelegramClientManager {
         connectionReady = false;
         targetLoadGeneration.incrementAndGet();
         targetGroupsLoading.set(false);
+        invalidateGroupDiscovery();
         targetGroups.clear();
         chatCache.clear();
         supergroupCache.clear();
@@ -755,7 +758,105 @@ public final class TelegramClientManager {
         );
     }
 
+    private final GroupSearchCache<List<Long>> groupSearchCache =
+            new GroupSearchCache<>(64, 120_000, () -> System.nanoTime() / 1_000_000);
+    private final Map<String, List<DiscoveryCallback>> pendingGroupSearches = new java.util.HashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger discoveryGeneration = new java.util.concurrent.atomic.AtomicInteger();
+
+    private void invalidateGroupDiscovery() {
+        discoveryGeneration.incrementAndGet();
+        groupSearchCache.clear();
+        storageExecutor.execute(() -> discoveryPrefs.edit().remove("group_search_records").apply());
+    }
+
+    public int groupSearchScore(long id, String query) {
+        GroupInfo group = getGroup(id);
+        return group == null ? 0 : new GroupRankingEngine().score(group.title, group.link, query);
+    }
+
+    /** Same TDLib client and deadline machinery; coalescing and ranking run off the UI thread. */
     public void discoverPublicGroupsForReview(String query, DiscoveryCallback callback) {
+        String clean = new SearchQueryBuilder().publicQuery(query);
+        int generation = discoveryGeneration.get();
+        runtimeExecutor.execute(() -> {
+            if (generation != discoveryGeneration.get() || client == null || currentStep != AuthStep.READY || clean.isEmpty()) {
+                discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده نیست یا عبارت جستجو کوتاه است.");
+                return;
+            }
+            List<Long> cached = groupSearchCache.get(clean);
+            if (cached != null) {
+                saveGroupSearchRecords(clean, cached);
+                discoveryResult(callback, true, 0, cached, cached.isEmpty() ? "گروهی پیدا نشد؛ پیشنهاد دیگری را امتحان کن." : "نتایج ذخیره‌شده");
+                return;
+            }
+            String key = generation + ":" + clean;
+            List<DiscoveryCallback> waiting = pendingGroupSearches.get(key);
+            if (waiting != null) { if (callback != null) waiting.add(callback); return; }
+            if (pendingGroupSearches.size() >= 8) {
+                discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "جستجوهای قبلی هنوز کامل نشده‌اند؛ کمی صبر کن.");
+                return;
+            }
+            waiting = new ArrayList<>();
+            if (callback != null) waiting.add(callback);
+            pendingGroupSearches.put(key, waiting);
+            discoverPublicGroupsUncached(clean, new DiscoveryCallback() {
+                public void onResult(boolean success, int added, int count, String message) {
+                    onDetailedResult(success, added, count, message, java.util.Collections.emptyList());
+                }
+                public void onDetailedResult(boolean success, int added, int count, String message, List<Long> ids) {
+                    runtimeExecutor.execute(() -> {
+                        List<DiscoveryCallback> listeners = pendingGroupSearches.remove(key);
+                        if (listeners == null) return;
+                        boolean valid = generation == discoveryGeneration.get() && client != null && currentStep == AuthStep.READY;
+                        List<Long> ranked = new ArrayList<>(valid ? ids : java.util.Collections.emptyList());
+                        Map<Long, Integer> scores = new java.util.HashMap<>();
+                        for (Long id : ranked) scores.put(id, groupSearchScore(id, clean));
+                        ranked.sort(Comparator.<Long>comparingInt(id -> scores.get(id)).reversed().thenComparingLong(id -> id));
+                        List<Long> snapshot = java.util.Collections.unmodifiableList(ranked);
+                        if (success && valid) {
+                            groupSearchCache.put(clean, snapshot);
+                            saveGroupSearchRecords(clean, snapshot);
+                        }
+                        for (DiscoveryCallback listener : listeners) {
+                            try { discoveryResult(listener, success && valid, valid ? added : 0, snapshot,
+                                    valid ? message : "نشست تلگرام تغییر کرده؛ دوباره جستجو کن."); }
+                            catch (RuntimeException error) { SEARCH_LOG.warning("Group search callback failed"); }
+                        }
+                    });
+                }
+            });
+        });
+    }
+
+    /** Exportable latest successful search. No remote server or second Telegram session is created. */
+    public List<GroupSearchRecord> getGroupSearchRecords() {
+        List<GroupSearchRecord> records = new ArrayList<>();
+        try {
+            JSONArray array = new JSONArray(discoveryPrefs.getString("group_search_records", "[]"));
+            for (int i = 0; i < array.length(); i++) records.add(GroupSearchRecord.fromJson(array.getJSONObject(i)));
+        } catch (Exception ignored) { /* Older or damaged payloads do not block discovery. */ }
+        return java.util.Collections.unmodifiableList(records);
+    }
+
+    private void saveGroupSearchRecords(String query, List<Long> ids) {
+        JSONArray array = new JSONArray();
+        long timestamp = System.currentTimeMillis();
+        for (Long id : ids) {
+            GroupInfo group = getGroup(id);
+            if (group == null) continue;
+            String username = group.link.startsWith("https://t.me/") ? group.link.substring(13) : "";
+            array.put(new GroupSearchRecord(query, id, group.title, username, GroupSearchRecord.Source.ANDROID,
+                    groupSearchScore(id, query), timestamp).toJson());
+            if (array.length() >= 200) break;
+        }
+        String payload = array.toString();
+        int generation = discoveryGeneration.get();
+        storageExecutor.execute(() -> {
+            if (generation == discoveryGeneration.get()) discoveryPrefs.edit().putString("group_search_records", payload).apply();
+        });
+    }
+
+    private void discoverPublicGroupsUncached(String query, DiscoveryCallback callback) {
         Client local = client;
         String clean = query == null ? "" : query.trim();
         if (local == null || currentStep != AuthStep.READY) {
@@ -824,11 +925,13 @@ public final class TelegramClientManager {
         final List<Long> ids = new ArrayList<>();
         final AtomicBoolean finished = new AtomicBoolean();
         ScheduledFuture<?> deadline;
+        int generation;
         int newItems;
     }
 
     private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback) {
         GroupSearchResults collected = new GroupSearchResults();
+        collected.generation = discoveryGeneration.get();
         collected.deadline = REQUEST_TIMER.schedule(() -> finishGroupSearch(collected, callback,
                 false, "Telegram 408: زمان دریافت کامل نتایج تمام شد؛ دوباره تلاش کن."),
                 60, TimeUnit.SECONDS);
@@ -851,6 +954,7 @@ public final class TelegramClientManager {
     private void processGroupSearchResult(Client local, TdApi.Object result, boolean publicSearch,
                                            GroupSearchResults collected, DiscoveryCallback callback) {
         if (collected.finished.get()) return;
+        if (local != client || collected.generation != discoveryGeneration.get()) { finishGroupSearch(collected, callback, false, "نشست تغییر کرده است."); return; }
         if (result instanceof TdApi.Error) {
             finishGroupSearch(collected, callback, false,
                     searchErrorMessage((TdApi.Error) result));
@@ -877,7 +981,7 @@ public final class TelegramClientManager {
 
     private void collectGroupSearchResult(TdApi.Chat chat, boolean publicSearch,
                                            GroupSearchResults collected) {
-        if (!isGroupChat(chat)) return;
+        if (!isGroupChat(chat) || collected.generation != discoveryGeneration.get()) return;
         synchronized (collected) {
             if (collected.finished.get()) return;
             collected.ids.add(chat.id);
@@ -897,6 +1001,7 @@ public final class TelegramClientManager {
                                            boolean publicSearch, GroupSearchResults collected,
                                            DiscoveryCallback callback) {
         if (collected.finished.get()) return;
+        if (local != client || collected.generation != discoveryGeneration.get()) { finishGroupSearch(collected, callback, false, "نشست تغییر کرده است."); return; }
         if (index >= missing.size()) {
             String message = collected.ids.isEmpty() ? "نتیجه گروهی پیدا نشد."
                     : "جستجوی گروه‌ها کامل شد.";
@@ -1555,18 +1660,7 @@ public final class TelegramClientManager {
     }
 
     private static boolean isGroupChat(TdApi.Chat chat) {
-        if (chat == null) return false;
-        if (chat.type instanceof TdApi.ChatTypeBasicGroup) return true;
-        if (chat.type instanceof TdApi.ChatTypeSupergroup) {
-            try {
-                Field field = chat.type.getClass().getField("isChannel");
-                Object value = field.get(chat.type);
-                return !(value instanceof Boolean) || !((Boolean) value);
-            } catch (Throwable ignored) {
-                return true;
-            }
-        }
-        return false;
+        return GroupFilter.accepts(chat);
     }
 
     private void handleConnectionState(TdApi.ConnectionState state) {
@@ -1627,9 +1721,11 @@ public final class TelegramClientManager {
         } else if (state instanceof TdApi.AuthorizationStateLoggingOut
                 || state instanceof TdApi.AuthorizationStateClosing) {
             currentStep = AuthStep.LOGGING_OUT;
+            invalidateGroupDiscovery();
             listener.onAuthStep(currentStep, "در حال بستن نشست تلگرام...");
         } else if (state instanceof TdApi.AuthorizationStateClosed) {
             currentStep = AuthStep.CLOSED;
+            invalidateGroupDiscovery();
             listener.onAuthStep(currentStep, "اتصال تلگرام بسته شد.");
         }
     }

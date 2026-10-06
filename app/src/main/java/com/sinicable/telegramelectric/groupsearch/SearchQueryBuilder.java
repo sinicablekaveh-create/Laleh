@@ -7,6 +7,6 @@ public final class SearchQueryBuilder {
     public String publicQuery(String query) {
         String clean = PersianNormalizer.normalize(query);
         if (PersianNormalizer.topic(clean).length() < 2) return "";
-        return PersianNormalizer.contains(clean, "گروه") ? clean : "گروه " + clean;
+        return PersianNormalizer.contains(clean, "گروه") ? clean : build(clean).get(0);
     }
 }
