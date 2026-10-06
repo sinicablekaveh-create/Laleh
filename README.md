@@ -1,4 +1,4 @@
-# Telegram Electric
+# Telegram Electri
 
 اپ اندروید برای ورود به حساب تلگرام با TDLib و بانک آفلاین واژه‌های مرتبط با برق.
 
