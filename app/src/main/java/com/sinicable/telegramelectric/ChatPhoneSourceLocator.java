@@ -9,12 +9,24 @@ public class ChatPhoneSourceLocator {
     private final long chatId;
     private final long messageId;
     private final String chatTitle;
+    private final String messageTime;
 
     public ChatPhoneSourceLocator(String phone, long chatId, long messageId, String chatTitle) {
+        this(phone, chatId, messageId, chatTitle, "");
+    }
+
+    public ChatPhoneSourceLocator(
+            String phone,
+            long chatId,
+            long messageId,
+            String chatTitle,
+            String messageTime
+    ) {
         this.phone = phone;
         this.chatId = chatId;
         this.messageId = messageId;
         this.chatTitle = chatTitle;
+        this.messageTime = messageTime == null ? "" : messageTime;
     }
 
     public String getPhone() {
@@ -31,5 +43,9 @@ public class ChatPhoneSourceLocator {
 
     public String getChatTitle() {
         return chatTitle;
+    }
+
+    public String getMessageTime() {
+        return messageTime;
     }
 }

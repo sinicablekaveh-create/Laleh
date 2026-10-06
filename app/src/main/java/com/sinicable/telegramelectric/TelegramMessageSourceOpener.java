@@ -11,8 +11,9 @@ public final class TelegramMessageSourceOpener {
     private TelegramMessageSourceOpener() {}
 
     public static boolean openMessage(Context context, long chatId, long messageId) {
+        long openMessageChatId = TelegramChatIdConverter.toOpenMessageChatId(chatId);
         Intent intent = new Intent(Intent.ACTION_VIEW);
-        String uri = "tg://openmessage?chat_id=" + chatId + "&message_id=" + messageId;
+        String uri = "tg://openmessage?chat_id=" + openMessageChatId + "&message_id=" + messageId;
         intent.setData(Uri.parse(uri));
 
         if (intent.resolveActivity(context.getPackageManager()) == null) {

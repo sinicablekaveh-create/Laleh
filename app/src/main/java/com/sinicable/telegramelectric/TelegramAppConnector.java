@@ -51,8 +51,13 @@ public final class TelegramAppConnector {
     }
 
     public static boolean openPhone(Context context, String phone, String packageName) {
+        String normalizedPhone = TelegramPhoneTarget.normalize(phone);
+        if (normalizedPhone.isEmpty()) {
+            return false;
+        }
+
         Intent intent = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("tg://resolve?phone=" + phone));
+                Uri.parse("tg://resolve?phone=" + normalizedPhone));
 
         if (packageName != null && !packageName.isEmpty()) {
             intent.setPackage(packageName);
