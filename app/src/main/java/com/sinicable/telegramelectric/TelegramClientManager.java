@@ -8,6 +8,7 @@ import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import com.sinicable.telegramelectric.groupsearch.GroupRanker;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -799,7 +800,7 @@ public final class TelegramClientManager {
             return;
         }
 
-        GroupSearchResults collected = startGroupSearchOperation(callback);
+        GroupSearchResults collected = startGroupSearchOperation(callback, clean);
         sendSearchRequest(local, request, "public_group_search",
                 result -> processGroupSearchResult(local, result, true, collected, callback));
     }
@@ -816,7 +817,7 @@ public final class TelegramClientManager {
             return;
         }
 
-        GroupSearchResults collected = startGroupSearchOperation(callback);
+        GroupSearchResults collected = startGroupSearchOperation(callback, clean);
         sendSearchRequest(local, new TdApi.SearchChats(clean, null, 50), "known_group_search",
                 result -> processGroupSearchResult(local, result, false, collected, callback));
     }
@@ -827,18 +828,20 @@ public final class TelegramClientManager {
         final java.util.Set<Long> ids = new LinkedHashSet<>();
         final AtomicBoolean finished = new AtomicBoolean();
         ScheduledFuture<?> deadline;
+        String query = "";
         int newItems;
     }
 
-    private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback) {
+    private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback, String query) {
         GroupSearchResults collected = new GroupSearchResults();
+        collected.query = query;
         collected.deadline = REQUEST_TIMER.schedule(() -> finishGroupSearch(collected, callback,
                 false, "Telegram 408: زمان دریافت کامل نتایج تمام شد؛ دوباره تلاش کن."),
                 60, TimeUnit.SECONDS);
         return collected;
     }
 
-    private static void finishGroupSearch(GroupSearchResults collected, DiscoveryCallback callback,
+    private void finishGroupSearch(GroupSearchResults collected, DiscoveryCallback callback,
                                            boolean success, String message) {
         List<Long> ids;
         int newItems;
@@ -848,6 +851,16 @@ public final class TelegramClientManager {
             ids = new ArrayList<>(collected.ids);
             newItems = collected.newItems;
         }
+        GroupRanker ranker = new GroupRanker();
+        Map<Long, Integer> scores = new java.util.HashMap<>();
+        for (Long id : ids) {
+            GroupInfo group = getGroup(id);
+            String username = group != null && group.link.startsWith("https://t.me/")
+                    ? group.link.substring("https://t.me/".length()) : "";
+            scores.put(id, group == null ? 0 : ranker.score(group.title, username, collected.query));
+        }
+        // List.sort is stable: equally relevant results keep their discovery order.
+        ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed());
         discoveryResult(callback, success, newItems, ids, message);
     }
 

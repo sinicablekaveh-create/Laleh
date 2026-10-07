@@ -207,7 +207,7 @@ public final class WordBank {
                 .putStringSet(KEY_REMOVED_WORDS, new HashSet<>(removedWords)).apply();
     }
 
-    static String normalize(String value) {
+    public static String normalize(String value) {
         if (value == null) return "";
         return value
                 .trim()

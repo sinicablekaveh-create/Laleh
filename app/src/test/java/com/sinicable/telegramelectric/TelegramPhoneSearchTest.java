@@ -339,9 +339,9 @@ public class TelegramPhoneSearchTest {
         Class<?> resultsClass = Class.forName(
                 "com.sinicable.telegramelectric.TelegramClientManager$GroupSearchResults");
         Method start = TelegramClientManager.class.getDeclaredMethod(
-                "startGroupSearchOperation", TelegramClientManager.DiscoveryCallback.class);
+                "startGroupSearchOperation", TelegramClientManager.DiscoveryCallback.class, String.class);
         start.setAccessible(true);
-        Object collected = start.invoke(manager, new Object[] {null});
+        Object collected = start.invoke(manager, null, "");
         Method collect = TelegramClientManager.class.getDeclaredMethod("collectGroupSearchResult",
                 TdApi.Chat.class, boolean.class, resultsClass);
         collect.setAccessible(true);
@@ -353,7 +353,7 @@ public class TelegramPhoneSearchTest {
                 resultsClass, TelegramClientManager.DiscoveryCallback.class, boolean.class, String.class);
         finish.setAccessible(true);
         DetailedResult result = new DetailedResult();
-        finish.invoke(null, collected, result, true, "جستجو کامل شد.");
+        finish.invoke(manager, collected, result, true, "جستجو کامل شد.");
 
         assertTrue(result.completed.await(3, TimeUnit.SECONDS));
         assertTrue(result.success);
@@ -378,6 +378,25 @@ public class TelegramPhoneSearchTest {
         assertEquals(2, requests.size());
         assertTrue(requests.get(1) instanceof TdApi.GetChat);
         assertEquals(-55L, manager.getFoundGroups().get(0).id);
+    }
+
+    @Test
+    public void discoveryRanksExactTitleAndCityAheadOfUnrelatedGroup() throws Exception {
+        TdApi.Chat unrelated = group(-70L);
+        unrelated.title = "گروه عمومی";
+        TdApi.Chat partial = group(-71L);
+        partial.title = "برق صنعتی";
+        TdApi.Chat exact = group(-72L);
+        exact.title = "برق صنعتی تهران";
+        for (TdApi.Chat chat : List.of(unrelated, partial, exact)) {
+            update(new TdApi.UpdateNewChat(chat));
+        }
+        response = chats(-70L, -71L, -72L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق صنعتی تهران", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.success);
+        assertEquals(List.of(-72L, -71L, -70L), result.ids);
     }
 
     @Test
