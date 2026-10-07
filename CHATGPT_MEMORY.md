@@ -203,6 +203,13 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - `npm test` با ۲ تست، `npm run typecheck` و `NEXT_TELEMETRY_DISABLED=1 npm run build` موفق شدند. smoke HTTP سرور تولیدی نیز RTL، query و وضعیت خالی را تأیید کرد؛ سرور آزمایشی پس از بررسی متوقف شد.
 - catalog عمومی هنوز خالی است و سرویس remote یا deployment پیکربندی نشده؛ بررسی بصری مرورگر اجرا نشده است. وب به نشست یا احراز هویت TDLib دسترسی ندارد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-009: پایهٔ sync عمومی
+
+- DiscoveryMetadata فقط فیلدهای عمومی مشخص دارد؛ username عمومی و طول عنوان/دسته/شهر و revision کنترل می‌شوند. DiscoverySyncQueue از preferences موجود discovery استفاده می‌کند، پیش‌فرض غیرفعال است، حداکثر ۱۰۰ رکورد نگه می‌دارد، revision قدیمی را رد و ack قدیمی را از حذف revision جدید منع می‌کند.
+- قطع opt-in صف را پاک می‌کند. تست‌ها ماندگاری، ظرفیت، opt-out، schema نامعتبر و whitelist فیلدها را پوشش می‌دهند.
+- فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۲۲ تست بدون failure/error/skip و lint/build موفق اجرا شد.
+- endpoint/transport خارجی وجود ندارد و هیچ sync شبکه‌ای انجام نمی‌شود؛ اتصال UI و delivery در مراحل بعد باقی است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
