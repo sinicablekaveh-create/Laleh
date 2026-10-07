@@ -79,6 +79,7 @@ public final class TelegramClientManager {
     private final Map<Long, GroupInfo> targetGroups = new ConcurrentHashMap<>();
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
     private final Map<String, GroupSearchResults> publicSearches = new java.util.HashMap<>();
+    private final SearchMetrics searchMetrics = new SearchMetrics();
     private static final int MAX_PUBLIC_SEARCHES = 16;
     private static final int MAX_SEARCH_FOLLOWERS = 32;
     private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
@@ -561,12 +562,15 @@ public final class TelegramClientManager {
     /** Completes every request once, including timeouts, transport failures and changed sessions. */
     private void sendSearchRequest(Client local, TdApi.Function request, String operation,
                                    Client.ResultHandler handler) {
+        long startedAt = System.nanoTime();
+        searchMetrics.requestStarted();
         long requestId = NEXT_REQUEST_ID.incrementAndGet();
         AtomicBoolean completed = new AtomicBoolean();
         SEARCH_LOG.info("request=" + requestId + " operation=" + operation
                 + " auth=" + currentStep + " connected=" + connectionReady);
         ScheduledFuture<?> deadline = REQUEST_TIMER.schedule(() -> {
             if (!completed.compareAndSet(false, true)) return;
+            searchMetrics.requestCompleted(false, true, System.nanoTime() - startedAt);
             SEARCH_LOG.warning("request=" + requestId + " operation=" + operation + " timeout");
             handler.onResult(new TdApi.Error(408, "زمان پاسخ تلگرام تمام شد؛ اتصال را بررسی و دوباره تلاش کن."));
         }, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -585,6 +589,9 @@ public final class TelegramClientManager {
                 SEARCH_LOG.info("request=" + requestId + " operation=" + operation + " response="
                         + (safeResult == null ? "null" : safeResult.getClass().getSimpleName()));
             }
+            searchMetrics.requestCompleted(!(safeResult instanceof TdApi.Error) && safeResult != null,
+                    safeResult instanceof TdApi.Error && ((TdApi.Error) safeResult).code == 408,
+                    System.nanoTime() - startedAt);
             handler.onResult(safeResult);
         };
         if (local != client || currentStep != AuthStep.READY) {
@@ -619,6 +626,8 @@ public final class TelegramClientManager {
         GroupInfo target = targetGroups.get(chatId);
         return target != null ? target : foundGroups.get(chatId);
     }
+
+    public SearchMetrics.Snapshot getSearchMetrics() { return searchMetrics.snapshot(); }
 
     public void sendPhotoToChat(
             long chatId,
@@ -811,6 +820,7 @@ public final class TelegramClientManager {
                 if (existing.followers.size() >= MAX_SEARCH_FOLLOWERS) rejected = true;
                 else {
                     if (callback != null) existing.followers.add(callback);
+                    searchMetrics.coalesced();
                     return;
                 }
             }
@@ -895,6 +905,7 @@ public final class TelegramClientManager {
         }
         // List.sort is stable: equally relevant results keep their discovery order.
         ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed());
+        searchMetrics.discovered(ids.size());
         for (DiscoveryCallback receiver : callbacks) {
             try {
                 discoveryResult(receiver, success, newItems, ids, message);
@@ -925,7 +936,10 @@ public final class TelegramClientManager {
                 if (!seen.add(id)) continue;
                 TdApi.Chat chat = chatCache.get(id);
                 if (chat == null) missing.add(id);
-                else collectGroupSearchResult(chat, publicSearch, collected);
+                else {
+                    searchMetrics.cacheHit();
+                    collectGroupSearchResult(chat, publicSearch, collected);
+                }
             }
         }
         recoverMissingSearchChat(local, missing, 0, publicSearch, collected, callback);
@@ -965,6 +979,7 @@ public final class TelegramClientManager {
             // TDLib updates can populate the cache while earlier chats are being recovered.
             TdApi.Chat cached = chatCache.get(expectedId);
             if (cached != null) {
+                searchMetrics.cacheHit();
                 collectGroupSearchResult(cached, publicSearch, collected);
                 runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
                         publicSearch, collected, callback));

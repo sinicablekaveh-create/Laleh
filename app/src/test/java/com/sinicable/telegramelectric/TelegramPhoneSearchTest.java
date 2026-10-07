@@ -486,6 +486,12 @@ public class TelegramPhoneSearchTest {
         assertEquals(first.ids, second.ids);
         assertEquals(1, first.calls.get());
         assertEquals(1, second.calls.get());
+        SearchMetrics.Snapshot metrics = manager.getSearchMetrics();
+        assertEquals(1, metrics.requests);
+        assertEquals(1, metrics.completed);
+        assertEquals(1, metrics.coalesced);
+        assertEquals(1, metrics.cacheHits);
+        assertEquals(1, metrics.discoveryResults);
         manager.discoverPublicGroupsForReview("کابل", new DetailedResult());
         assertEquals("Completed searches must not remain in flight", 2, requests.size());
         delayed.get().onResult(chats(-55L));
