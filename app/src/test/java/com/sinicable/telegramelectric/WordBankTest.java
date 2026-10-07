@@ -16,7 +16,7 @@ public class WordBankTest {
 
     @Before public void setUp() {
         storage = new TestPreferences();
-        storage.values("electrical_word_bank").put("iran_seed_version", 1);
+        storage.values("electrical_word_bank").put("iran_seed_version", 2);
         storage.values("electrical_word_bank").put("words", Set.of("برق", "برق ساختمان", "کابل"));
     }
 
@@ -45,6 +45,14 @@ public class WordBankTest {
         assertEquals(4, bank.size());
         assertTrue(bank.remove("صنعت  كابل"));
         assertEquals(3, new WordBank(storage.context).size());
+    }
+
+    @Test public void normalizationUnifiesArabicVariantsAndInvisibleSeparators() {
+        WordBank bank = new WordBank(storage.context);
+        assertTrue(bank.add("تأسیسات\u200cكهربائية"));
+        String alternate = "تاسیسات كهربائيه";
+        assertFalse(bank.add(alternate));
+        assertTrue(bank.allWords().contains(WordBank.normalize(alternate)));
     }
 
     @Test public void invalidInputsDoNotMutateBank() {

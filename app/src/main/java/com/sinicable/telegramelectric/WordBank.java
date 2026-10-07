@@ -15,7 +15,7 @@ public final class WordBank {
     private static final String KEY_WORDS = "words";
     private static final String KEY_REMOVED_WORDS = "removed_words";
     private static final String KEY_IRAN_SEED_VERSION = "iran_seed_version";
-    private static final int IRAN_SEED_VERSION = 1;
+    private static final int IRAN_SEED_VERSION = 2;
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "این", "اون", "آن", "برای", "با", "از", "به", "در", "رو", "را", "که", "یک",
@@ -215,6 +215,13 @@ public final class WordBank {
                 .replace('ي', 'ی')
                 .replace('ى', 'ی')
                 .replace('ك', 'ک')
+                .replace('ة', 'ه')
+                .replace('ۀ', 'ه')
+                .replace('أ', 'ا')
+                .replace('إ', 'ا')
+                .replace('ؤ', 'و')
+                .replace('ئ', 'ی')
+                .replaceAll("[\\u200C\\u200E\\u200F]", " ")
                 .replaceAll("[\\u064B-\\u065F\\u0670]", "")
                 .replaceAll("[\\s\\p{Z}]+", " ")
                 .trim();
