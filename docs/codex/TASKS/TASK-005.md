@@ -29,13 +29,12 @@ feat(group-filtering): complete TASK-005 group filtering
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: TelegramClientManager and TelegramPhoneSearchTest. Group filtering checks the pinned TDLib type directly and rejects ID zero. Regression covers basic groups, non-channel supergroups, channels, private/secret chats, unknown types and duplicated IDs in response order.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 111 tests, no failures/errors/skips; lint and APK build passed.
+- Commit SHA: see `fix(group-filtering): reject invalid group identities` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: device/live Telegram validation unperformed.
 
 ## Next
 TASK-006

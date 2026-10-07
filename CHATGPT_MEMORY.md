@@ -180,6 +180,11 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` واقعاً اجرا شد: ۱۱۰ تست، بدون failure/error/skip؛ lint با ۳۷ warning و بدون error؛ APK ساخته شد. آزمون دستگاه و سرور واقعی اجرا نشده است.
 - ابزار Codex Tasks قابل‌فراخوانی در این نشست در دسترس نبود؛ پیگیری در فایل‌های وظایف مخزن ادامه یافت.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-005: فیلتر گروه‌ها
+
+- فیلتر نوع TDLib مستقیم شده و شناسهٔ صفر رد می‌شود. تست پاسخ مختلط شامل گروه پایه، سوپرگروه، کانال، چت خصوصی/secret، نوع نامشخص و شناسهٔ تکراری است.
+- فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۱ تست و بدون failure/error/skip موفق شد؛ lint و ساخت APK نیز موفق بودند. آزمون واقعی دستگاه اجرا نشده است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
