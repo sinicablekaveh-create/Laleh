@@ -4,6 +4,8 @@ import android.text.Editable;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.TextView;
+import android.widget.ProgressBar;
+import android.view.View;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -103,6 +105,44 @@ public class WordBankUiTest {
         invoke("refreshWordSearch");
         verify(core).getSearchHistory(20, 20);
         verify(core, never()).getSearchHistory();
+    }
+
+    @Test
+    public void runningSearchShowsProgressAndStopHidesIt() throws Exception {
+        TextView history = mock(TextView.class);
+        installHistoryViews(history);
+        ProgressBar progress = mock(ProgressBar.class);
+        setField("wordSearchProgress", progress);
+        when(core.getSearchHistory(0, 20)).thenReturn(List.of());
+        when(core.isWordSearchRunning()).thenReturn(true);
+        invoke("refreshWordSearch");
+        verify(progress).setVisibility(View.VISIBLE);
+        verify(history).setText(contains("در حال اجراست"));
+        when(core.isWordSearchRunning()).thenReturn(false);
+        invoke("refreshWordSearch");
+        verify(progress).setVisibility(View.GONE);
+        verify(history).setText(contains("شروع / ادامه"));
+    }
+
+    @Test
+    public void zeroResultsAreDistinguishedFromFailures() throws Exception {
+        TextView history = mock(TextView.class);
+        installHistoryViews(history);
+        when(core.getSearchHistoryCount()).thenReturn(1L);
+        when(core.getSearchHistory(0, 20)).thenReturn(List.of(new WordSearchResult(
+                "برق", "برق", 1, 1000L, true, 0, 0, "", List.of())));
+        invoke("refreshWordSearch");
+        verify(history).setText(contains("گروهی برای این عبارت پیدا نشد"));
+    }
+
+    @Test
+    public void destroyedActivityDoesNotRenderLateSearchUpdates() throws Exception {
+        TextView history = mock(TextView.class);
+        installHistoryViews(history);
+        doReturn(true).when(activity).isDestroyed();
+        invoke("refreshWordSearch");
+        verifyNoInteractions(history);
+        verify(core, never()).getSearchHistory(anyInt(), anyInt());
     }
 
     private void installHistoryViews(TextView history) throws Exception {

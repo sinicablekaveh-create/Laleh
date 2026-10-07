@@ -25,6 +25,7 @@ import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -70,6 +71,7 @@ public final class MainActivity extends Activity {
     private Button wordSearchStartButton;
     private Button wordSearchStopButton;
     private TextView wordSearchStatusText;
+    private ProgressBar wordSearchProgress;
     private TextView wordSearchHistoryText;
     private TextView searchHistoryPageText;
     private Button previousHistoryPageButton;
@@ -468,6 +470,10 @@ public final class MainActivity extends Activity {
         wordSearchStatusText = text("", 14, true);
         wordSearchStatusText.setTextIsSelectable(true);
         root.addView(wordSearchStatusText, matchWrap());
+        wordSearchProgress = new ProgressBar(this);
+        wordSearchProgress.setContentDescription("جستجوی گروه‌ها در حال اجراست");
+        wordSearchProgress.setVisibility(View.GONE);
+        root.addView(wordSearchProgress, matchWrap());
         root.addView(text("تاریخچه ذخیره‌شده مراحل و نتیجه‌ها", 16, true), matchWrap());
         wordSearchHistoryText = text("", 13, false);
         wordSearchHistoryText.setTextIsSelectable(true);
@@ -1037,6 +1043,9 @@ public final class MainActivity extends Activity {
         boolean running = core.isWordSearchRunning();
         wordSearchStartButton.setEnabled(!running);
         wordSearchStopButton.setEnabled(running);
+        if (wordSearchProgress != null) {
+            wordSearchProgress.setVisibility(running ? View.VISIBLE : View.GONE);
+        }
 
         long historyCount = core.getSearchHistoryCount();
         int pages = (int) Math.max(1L,
@@ -1050,7 +1059,9 @@ public final class MainActivity extends Activity {
                 searchHistoryPage * SEARCH_HISTORY_PAGE_SIZE, SEARCH_HISTORY_PAGE_SIZE
         );
         if (history.isEmpty()) {
-            wordSearchHistoryText.setText("هنوز مرحله‌ای اجرا نشده است.");
+            wordSearchHistoryText.setText(running
+                    ? "جستجو در حال اجراست؛ نتیجهٔ مرحله پس از دریافت پاسخ اینجا نمایش داده می‌شود."
+                    : "هنوز مرحله‌ای اجرا نشده است. برای دریافت نتایج، شروع / ادامه جستجو را انتخاب کن.");
             return;
         }
         Map<Long, TelegramClientManager.GroupInfo> groups = new HashMap<>();
@@ -1069,6 +1080,9 @@ public final class MainActivity extends Activity {
                     .append(" | نتیجه: ").append(result.totalGroups).append('\n');
             if (result.error != null && !result.error.isEmpty()) {
                 out.append("خطا: ").append(result.error).append('\n');
+            }
+            if (result.success && result.resultIds.isEmpty()) {
+                out.append("گروهی برای این عبارت پیدا نشد. عبارت یا شهر دیگری را در بانک واژه امتحان کن.").append('\n');
             }
             for (Long id : result.resultIds) {
                 TelegramClientManager.GroupInfo group = groups.get(id);
