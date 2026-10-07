@@ -238,6 +238,11 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - SearchMetrics snapshot عددی و synchronized از درخواست/پاسخ/خطا/timeout، cache/coalescing، تعداد نتیجه و زمان پاسخ فراهم می‌کند. هیچ query، شناسه، عنوان، شماره یا دادهٔ نشست در metrics ذخیره نمی‌شود و آمار شبکه‌ای ارسال نمی‌شود.
 - تست فیزیکی coalescing یک درخواست و یک completion برای چند subscriber را تأیید می‌کند؛ snapshot قبلی immutable باقی می‌ماند. فرمان کامل تست/lint/build با ۱۳۱ تست بدون failure/error/skip موفق شد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-015: بهبود رتبه‌بندی
+
+- GroupRanker برای عنوان از boundary عبارت، نرمال‌سازی punctuation و وزن صریح category/location استفاده می‌کند؛ substring تصادفی حذف شد. tieها اکنون با group ID مرتب می‌شوند و ترتیب cache recovery تعیین‌کننده نیست.
+- شواهد relevance از نمونه‌های مصنوعی deterministic است، نه داده یا ارزیابی واقعی کاربر. فرمان کامل تست/lint/build با ۱۳۲ تست بدون failure/error/skip موفق شد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
