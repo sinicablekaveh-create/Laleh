@@ -335,6 +335,33 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void groupSearchCollectionReportsARepeatedGroupOnlyOnce() throws Exception {
+        Class<?> resultsClass = Class.forName(
+                "com.sinicable.telegramelectric.TelegramClientManager$GroupSearchResults");
+        Method start = TelegramClientManager.class.getDeclaredMethod(
+                "startGroupSearchOperation", TelegramClientManager.DiscoveryCallback.class);
+        start.setAccessible(true);
+        Object collected = start.invoke(manager, new Object[] {null});
+        Method collect = TelegramClientManager.class.getDeclaredMethod("collectGroupSearchResult",
+                TdApi.Chat.class, boolean.class, resultsClass);
+        collect.setAccessible(true);
+        TdApi.Chat repeatedGroup = group(-55L);
+        collect.invoke(manager, repeatedGroup, true, collected);
+        collect.invoke(manager, repeatedGroup, true, collected);
+
+        Method finish = TelegramClientManager.class.getDeclaredMethod("finishGroupSearch",
+                resultsClass, TelegramClientManager.DiscoveryCallback.class, boolean.class, String.class);
+        finish.setAccessible(true);
+        DetailedResult result = new DetailedResult();
+        finish.invoke(null, collected, result, true, "جستجو کامل شد.");
+
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.success);
+        assertEquals(List.of(-55L), result.ids);
+        assertEquals(1, result.newItems);
+    }
+
+    @Test
     public void discoveryRecoversMissingChatBeforeRecordingActualGroupIds() throws Exception {
         doAnswer(call -> {
             TdApi.Function request = call.getArgument(0);

@@ -15,6 +15,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -821,7 +822,9 @@ public final class TelegramClientManager {
     }
 
     private static final class GroupSearchResults {
-        final List<Long> ids = new ArrayList<>();
+        // Keep discovery output stable while protecting against a repeated TDLib callback or
+        // a chat returned by more than one recovery path.
+        final java.util.Set<Long> ids = new LinkedHashSet<>();
         final AtomicBoolean finished = new AtomicBoolean();
         ScheduledFuture<?> deadline;
         int newItems;
@@ -880,7 +883,7 @@ public final class TelegramClientManager {
         if (!isGroupChat(chat)) return;
         synchronized (collected) {
             if (collected.finished.get()) return;
-            collected.ids.add(chat.id);
+            if (!collected.ids.add(chat.id)) return;
             if (publicSearch) {
                 boolean isNew = !foundGroups.containsKey(chat.id);
                 captureSearchResult(chat);
