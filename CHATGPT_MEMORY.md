@@ -191,6 +191,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - تست‌ها نرمال‌سازی فارسی/عربی، Locale ترکی، query خالی و رتبه‌بندی callback را بررسی می‌کنند. فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۵ تست بدون failure/error/skip و lint/build موفق اجرا شد.
 - وزن‌ها heuristic هستند؛ ارزیابی relevance با دادهٔ واقعی و آزمون دستگاه اجرا نشده است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-007: وضعیت رابط جستجو
+
+- نشانگر اجرای جستجو، پیام انتظار و راهنمای شروع در تاریخچهٔ خالی، و پیام متفاوت برای پاسخ موفق بدون گروه اضافه شد.
+- تست UI وضعیت running/stopped، پاسخ بدون نتیجه و Activity نابودشده را پوشش می‌دهد؛ تست‌های موجود توقف و پاسخ دیررس نیز اجرا شدند.
+- فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۸ تست بدون failure/error/skip و lint/build موفق اجرا شد. آزمون بصری روی دستگاه اجرا نشده است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
