@@ -61,7 +61,7 @@ public class WordSearchIntegrationTest {
             }).when(handler).removeCallbacks(any(Runnable.class));
         });
         storage = new TestPreferences();
-        storage.values("electrical_word_bank").put("iran_seed_version", 1);
+        storage.values("electrical_word_bank").put("iran_seed_version", 2);
         storage.values("electrical_word_bank").put("words", Set.of("برق ساختمان", "صنعت ساختمان"));
         words = spy(new WordBank(storage.context));
         // AI's Android Base64 storage is independent of staged-search persistence under test.

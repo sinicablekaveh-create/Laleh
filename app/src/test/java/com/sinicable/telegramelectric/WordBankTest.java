@@ -64,6 +64,24 @@ public class WordBankTest {
         assertEquals(3, bank.size());
     }
 
+    @Test public void versionOneMigrationAddsCitiesAndPreservesDeletedWords() {
+        storage.values("electrical_word_bank").put("iran_seed_version", 1);
+        storage.values("electrical_word_bank").put("removed_words", Set.of("برق صنعتی تهران"));
+        WordBank migrated = new WordBank(storage.context);
+        assertFalse(migrated.allWords().contains("برق صنعتی تهران"));
+        assertTrue(migrated.allWords().contains("برق صنعتی مشهد"));
+        assertTrue(migrated.allWords().contains("کابل"));
+        assertEquals(migrated.allWords(), new WordBank(storage.context).allWords());
+        assertEquals(2, storage.values("electrical_word_bank").get("iran_seed_version"));
+    }
+
+    @Test public void versionOneEmptyBankRemainsEmptyAfterCityMigration() {
+        storage.values("electrical_word_bank").put("iran_seed_version", 1);
+        storage.values("electrical_word_bank").put("words", Set.of());
+        assertEquals(0, new WordBank(storage.context).size());
+        assertEquals(0, new WordBank(storage.context).size());
+    }
+
     @Test public void deletedWordsCannotBeRelearnedButManualAddCanRestoreThem() {
         try (MockedConstruction<OfflineWordAI> models = mockConstruction(OfflineWordAI.class, (ai, context) ->
                 when(ai.analyze(anyString(), anySet())).thenReturn(new OfflineWordAI.Result(100,
