@@ -55,6 +55,13 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
 
   get(groupId: string): PublicGroup | undefined { return this.rows.get(groupId); }
 
+  categories(): readonly Readonly<{ name: string; count: number }>[] {
+    const counts = new Map<string, number>();
+    for (const row of this.rows.values()) if (row.category) counts.set(row.category, (counts.get(row.category) ?? 0) + 1);
+    return [...counts].sort(([a], [b]) => a.localeCompare(b, "fa"))
+      .map(([name, count]) => Object.freeze({ name, count }));
+  }
+
   search(raw: string, offset = 0, limit = 20): SearchPage {
     const query = searchQuery(raw);
     const terms = [...new Set(words(query))].slice(0, 16);

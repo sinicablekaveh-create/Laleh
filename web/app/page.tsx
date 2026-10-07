@@ -1,6 +1,7 @@
 import { searchQuery } from "../lib/query";
 import { localCatalog } from "../lib/local-catalog";
 import Link from "next/link";
+import { GroupCards } from "./components/group-cards";
 
 export default async function DiscoveryPage({ searchParams }: {
   searchParams: Promise<{ q?: string | string[]; page?: string }>;
@@ -12,7 +13,7 @@ export default async function DiscoveryPage({ searchParams }: {
   const pageLink = (value: number) => `/?${new URLSearchParams({ q: query, page: String(value) })}`;
   return <main>
     <header><a className="brand" href="/">لاله<span>کشف گروه‌های عمومی</span></a>
-      <a href="#about">دربارهٔ جست‌وجو</a></header>
+      <Link href="/categories">دسته‌بندی‌ها</Link></header>
     <section className="hero">
       <p className="eyebrow">برق · صنعت · ارتباط</p>
       <h1>گروه مرتبط را<br />از همین‌جا پیدا کن.</h1>
@@ -30,10 +31,7 @@ export default async function DiscoveryPage({ searchParams }: {
       {result.hits.length === 0 ? <div className="empty"><span aria-hidden="true">✳</span>
         <p>{result.total ? "در این صفحه نتیجه‌ای نیست؛ صفحهٔ قبل را انتخاب کن."
           : "گروه عمومی تأییدشده‌ای برای نمایش پیدا نشد."}</p></div>
-        : <div className="results">{result.hits.map(({ group }) => <article className="group" key={group.groupId}>
-          <h3>{group.title}</h3><p>{[group.category, group.location].filter(Boolean).join(" · ")}</p>
-          <a href={`https://t.me/${group.username}`} target="_blank" rel="noopener noreferrer">مشاهده در تلگرام ↗</a>
-        </article>)}</div>}
+        : <GroupCards hits={result.hits} />}
       <nav className="pages" aria-label="صفحه‌های نتیجه">
         {page > 1 && <Link href={pageLink(page - 1)}>صفحهٔ قبل</Link>}
         {page * 20 < result.total && <Link href={pageLink(page + 1)}>صفحهٔ بعد</Link>}

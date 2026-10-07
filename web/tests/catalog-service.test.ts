@@ -17,3 +17,10 @@ test("local catalog does not expose records with private fields", () => {
   const catalog = new CatalogService([{ ...group, contacts: ["synthetic"] }]);
   assert.equal(catalog.search("").total, 0);
 });
+test("categories count approved unique groups and omit blank categories", () => {
+  const catalog = new CatalogService([group, { ...group, groupId: "-56", username: "another_group" },
+    { ...group, groupId: "-57", username: "uncategorized", category: "" }]);
+  assert.deepEqual(catalog.categories(), [{ name: "برق صنعتی", count: 2 }]);
+  assert.equal(catalog.get("-55")?.title, group.title);
+  assert.equal(catalog.get("not-an-id"), undefined);
+});

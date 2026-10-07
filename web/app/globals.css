@@ -24,6 +24,9 @@ h2 { font-size: 19px; }
 .group { border: 1px solid var(--line); background: #fffdf7; border-radius: 14px; padding: 24px; }
 .group h3 { margin: 0; }
 .group p { color: var(--muted); }
+.group { overflow-wrap: anywhere; }
+ul.results { list-style: none; padding: 0; }
+dt { font-weight: bold; } dd { margin-inline-start: 0; margin-bottom: 16px; }
 .pages { display: flex; gap: 32px; padding: 20px 0; }
 footer { margin-top: 60px; padding: 28px 0 40px; border-top: 1px solid var(--line); max-width: 740px; }
 @media (max-width: 600px) { main { padding: 0 20px; } header { min-height: 90px; } header > a:last-child { font-size: 12px; } .hero { padding-top: 40px; } .search { flex-direction: column; } .empty { padding: 24px; } }

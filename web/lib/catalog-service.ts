@@ -25,4 +25,5 @@ export class CatalogService {
     return result;
   }
   get(groupId: string) { return this.index.get(groupId); }
+  categories() { return this.index.categories(); }
 }
