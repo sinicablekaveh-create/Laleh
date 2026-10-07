@@ -210,6 +210,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۲۲ تست بدون failure/error/skip و lint/build موفق اجرا شد.
 - endpoint/transport خارجی وجود ندارد و هیچ sync شبکه‌ای انجام نمی‌شود؛ اتصال UI و delivery در مراحل بعد باقی است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-010: baseline کارایی
+
+- در `b405814` سه regex نرمال‌سازی WordBank یک‌بار compile می‌شوند؛ benchmark مصنوعی قابل‌اجرای مجدد در tools ثبت شد.
+- سه دور ۲۰هزار نرمال‌سازی روی میزبان: پیش از تغییر ۶۳٫۹۹/۴۱٫۴۷/۴۴٫۷۲ ms؛ پس از تغییر ۴۱٫۸۵/۲۳٫۰۹/۳۱٫۰۴ ms؛ checksum هر دو 931680. این اندازه‌گیری نتیجهٔ دستگاه Android یا benchmark آماری نیست.
+- فرمان کامل تست/lint/build با ۱۲۲ تست بدون failure/error/skip موفق شد؛ جزئیات فرمان‌ها در TASK-010 ثبت شده است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
