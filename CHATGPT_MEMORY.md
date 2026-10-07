@@ -163,6 +163,7 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - گزارش شواهد در `docs/codex/TASKS/TASK-001-AUDIT.md` ثبت شد؛ این مرحله رفتار محصول را تغییر نداد.
 - فرمان `gradle --no-daemon --max-workers=4 --rerun-tasks -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با موفقیت اجرا شد: ۱۰۳ تست، ۰ شکست، ۰ خطا، ۰ ردشده؛ lint با ۰ خطا و ۳۷ هشدار؛ APK اشکال‌زدایی ساخته شد.
 - فقط `TelegramClientManager` در کد تولیدی TDLib client می‌سازد. مسیر بازیابی `BackgroundCoreService` هنگام نبود `BackgroundRuntime` باید در مراحل بعد با آزمون چرخهٔ حیات محافظت شود تا یک نشست فعال حفظ شود.
+- شواهد و commitها در شاخهٔ `codex/task-001-audit` روی GitHub ارسال شدند. ساخت خودکار PR از این محیط به‌دلیل پاسخ `Forbidden` از GitHub GraphQL انجام نشد.
 
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
