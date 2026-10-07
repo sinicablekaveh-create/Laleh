@@ -29,13 +29,12 @@ feat(sync-pipeline): complete TASK-019 sync pipeline
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Local pipeline implemented/validated 2026-10-07; real remote synchronization remains blocked.
+- Changed files: DiscoverySyncQueue, DiscoverySyncRunner and tests. Injected transport delivers one pending record at a time with a 30-second deadline and exactly-once completion. Retry attempts/backoff persist in existing preferences; permanent rejection pauses the revision, newer revisions reset retry state, and stale acknowledgments cannot delete new work. Accepted metadata updates the bounded public cache.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 138 tests, no failures/errors/skips; lint and APK build passed. Tests use controlled transport, timeout and clock; no live synchronization was executed.
+- Commit SHA: see `feat(sync-pipeline): add retry-safe public delivery adapter` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: no approved remote endpoint, authentication policy or public catalog source is configured in the repository/environment. The transport contract is concrete and testable; an external adapter must be configured before real delivery can be claimed.
 
 ## Next
 TASK-020

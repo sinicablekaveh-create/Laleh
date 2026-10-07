@@ -260,6 +260,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - cache پاسخ وب محدود به ۲۰۰ entry، ۵۰ hit و key به طول ۵۱۲ است؛ ورودی و خروجی copy می‌شوند و TTL/LRU/clear دارد.
 - Android با ۱۳۵ تست بدون failure/error/skip و lint/build موفق؛ وب با ۹ تست موفق، typecheck و build تولیدی موفق اعتبارسنجی شد. اتصال به provider/delivery در مراحل بعد باقی است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-019: pipeline محلی sync
+
+- DiscoverySyncRunner با transport تزریقی، scheduler/clock تزریقی، اجرای تک‌درخواست، deadline سی‌ثانیه‌ای و completion یک‌بار اضافه شد. retry/backoff در preferences موجود می‌ماند؛ rejection دائمی revision را pause می‌کند و revision تازه retry را reset می‌کند.
+- تست‌های timeout/پاسخ دیررس، ack قدیمی، callback تکراری، retry پس از reconstruction و opt-out اجرا شدند. فرمان کامل تست/lint/build با ۱۳۸ تست بدون failure/error/skip موفق شد.
+- TASK-019 فقط از نظر pipeline محلی پیاده و اعتبارسنجی شده؛ sync واقعی مسدود است چون endpoint مجاز، سیاست authentication و منبع catalog عمومی تعیین نشده‌اند. هیچ delivery شبکه‌ای اجرا نشده است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
