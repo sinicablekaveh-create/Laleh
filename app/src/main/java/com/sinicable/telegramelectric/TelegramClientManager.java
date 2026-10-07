@@ -759,7 +759,7 @@ public final class TelegramClientManager {
 
     public void discoverPublicGroupsForReview(String query, DiscoveryCallback callback) {
         Client local = client;
-        String clean = query == null ? "" : query.trim();
+        String clean = SearchQuery.parse(query).normalized;
         if (local == null || currentStep != AuthStep.READY) {
             discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
@@ -807,7 +807,7 @@ public final class TelegramClientManager {
 
     public void searchKnownGroups(String query, DiscoveryCallback callback) {
         Client local = client;
-        String clean = query == null ? "" : query.trim();
+        String clean = SearchQuery.parse(query).normalized;
         if (local == null || currentStep != AuthStep.READY) {
             discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
