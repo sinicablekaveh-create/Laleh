@@ -29,13 +29,13 @@ feat(keyword-intelligence): complete TASK-003 keyword intelligence
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07 after fresh validation and migration coverage.
+- Changed files: WordBank, IranElectricalSearchSeeds and associated unit/integration tests. Version 2 adds five major-city templates and Arabic/Persian normalization; migration preserves deleted queries and intentionally empty banks.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 110 tests, no failures/errors/skips, 37 lint warnings and no errors; APK built (shared TASK-003/004 validation).
+- Commit SHA: `d7feb0e` implementation; `e74b3ee` migration tests and integration fixture correction.
+- Pull Request: `codex/task-001-audit`; prior GraphQL access blocker still applies.
+- Remaining blockers: device/live Telegram validation remains unperformed.
+- Correction: the previous conversational claim of full validation was not reproducible. A fresh run exposed seven outdated version-1 integration fixtures; these were corrected and the full suite passed before completion.
 
 ## Next
 TASK-004

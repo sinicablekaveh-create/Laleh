@@ -172,6 +172,14 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - تست هدفمند `TelegramPhoneSearchTest` با ۲۰ تست موفق شد. اجرای کامل `testDebugUnitTest lintDebug assembleDebug` نیز با ۱۰۴ تست موفق، صفر failure/error/skip و lint بدون error (۳۸ warning) موفق شد.
 - commit تغییر کد: `400eaad4ea31431d1ec69f37d2316c5ff63adde0` در شاخهٔ `codex/task-001-audit`.
 
+### ۷ اکتبر ۲۰۲۶ — ادامهٔ زنجیره: TASK-003 و TASK-004
+
+- TASK-003: seedهای شهری و نرمال‌سازی در `d7feb0e`؛ تست migration بانک نسخهٔ ۱، حفظ حذف‌ها و بانک خالی در `e74b3ee` ثبت شد.
+- ادعای قبلی موفقیت کامل TASK-003 در اجرای تازه بازتولید نشد: هفت تست یکپارچه fixture نسخهٔ ۱ داشتند. پس از اصلاح fixture به نسخهٔ ۲ و افزودن تست واقعی migration، suite کامل موفق شد.
+- TASK-004 در `a77f588`: بازیابی نتایج، cache تازه را دوباره بررسی می‌کند تا GetChat اضافی حذف شود؛ پاسخ چت با شناسهٔ نامرتبط رد می‌شود.
+- فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` واقعاً اجرا شد: ۱۱۰ تست، بدون failure/error/skip؛ lint با ۳۷ warning و بدون error؛ APK ساخته شد. آزمون دستگاه و سرور واقعی اجرا نشده است.
+- ابزار Codex Tasks قابل‌فراخوانی در این نشست در دسترس نبود؛ پیگیری در فایل‌های وظایف مخزن ادامه یافت.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
