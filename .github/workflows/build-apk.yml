@@ -2,6 +2,13 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "app/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/build-apk.yml"
   push:
     branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain" ]
     paths:
@@ -9,6 +16,10 @@ on:
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
+
+concurrency:
+  group: build-apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
