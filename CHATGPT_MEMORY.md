@@ -243,6 +243,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - GroupRanker برای عنوان از boundary عبارت، نرمال‌سازی punctuation و وزن صریح category/location استفاده می‌کند؛ substring تصادفی حذف شد. tieها اکنون با group ID مرتب می‌شوند و ترتیب cache recovery تعیین‌کننده نیست.
 - شواهد relevance از نمونه‌های مصنوعی deterministic است، نه داده یا ارزیابی واقعی کاربر. فرمان کامل تست/lint/build با ۱۳۲ تست بدون failure/error/skip موفق شد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-016: قرارداد پایدار داده
+
+- schema v2 عمومی در shared ثبت شد؛ group ID و revision به رشتهٔ decimal تبدیل شدند تا دقت Long در JavaScript حفظ شود. Android schema v1 را همچنان می‌خواند؛ وب فقط اعداد safe-integer نسخهٔ ۱ را migrate می‌کند.
+- parser وب whitelist، range، نوع و schema را کنترل می‌کند و record immutable برمی‌گرداند. مرزهای Long.MIN/MAX و نسخهٔ قدیمی تست شدند.
+- فرمان کامل Android با ۱۳۳ تست بدون failure/error/skip و lint/build موفق؛ وب با ۴ تست موفق، typecheck و build تولیدی موفق اعتبارسنجی شد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI

@@ -29,13 +29,13 @@ feat(data-models): complete TASK-016 data models
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: DiscoveryMetadata, Android model tests, shared/discovery.schema.json and web metadata parser/tests. Schema v2 uses decimal strings for signed-64-bit group IDs and revisions, preserving JavaScript precision. Android still reads v1; web migrates v1 only for safely representable integer identities. The web parser rejects unknown fields/schema/ranges and returns immutable records.
+- Android test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 133 tests; lint and APK build passed.
+- Web test/build commands: `npm test` — 4 tests PASS; `npm run typecheck` and `NEXT_TELEMETRY_DISABLED=1 npm run build` — PASS.
+- Commit SHA: see `feat(data-models): preserve long identities across Android and web` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: no real public catalog or remote service configured. JavaScript v1 numbers outside the safe-integer range are rejected rather than silently approximated.
 
 ## Next
 TASK-017
