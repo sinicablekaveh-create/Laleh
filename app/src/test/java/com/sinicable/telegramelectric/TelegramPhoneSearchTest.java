@@ -466,6 +466,48 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void overlappingNormalizedQueriesShareRequestAndDeliverEachCallbackOnce() throws Exception {
+        update(new TdApi.UpdateNewChat(group(-55L)));
+        AtomicReference<Client.ResultHandler> delayed = new AtomicReference<>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            delayed.set(call.getArgument(1));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult first = new DetailedResult();
+        DetailedResult second = new DetailedResult();
+        manager.discoverPublicGroupsForReview("كابل", first);
+        manager.discoverPublicGroupsForReview(" کابل ", second);
+        assertEquals(1, requests.size());
+        delayed.get().onResult(chats(-55L));
+        delayed.get().onResult(chats(-55L));
+        assertTrue(first.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(second.completed.await(3, TimeUnit.SECONDS));
+        assertEquals(first.ids, second.ids);
+        assertEquals(1, first.calls.get());
+        assertEquals(1, second.calls.get());
+        manager.discoverPublicGroupsForReview("کابل", new DetailedResult());
+        assertEquals("Completed searches must not remain in flight", 2, requests.size());
+        delayed.get().onResult(chats(-55L));
+    }
+
+    @Test
+    public void failingPrimaryCallbackDoesNotPreventOtherSearchSubscribers() throws Exception {
+        AtomicReference<Client.ResultHandler> delayed = new AtomicReference<>();
+        doAnswer(call -> { delayed.set(call.getArgument(1)); return null; })
+                .when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        manager.discoverPublicGroupsForReview("برق", (success, fresh, total, message) -> {
+            throw new IllegalStateException("synthetic callback failure");
+        });
+        DetailedResult subscriber = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", subscriber);
+        delayed.get().onResult(new TdApi.Error(503, "synthetic transport failure"));
+        assertTrue(subscriber.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(subscriber.success);
+        assertEquals(1, subscriber.calls.get());
+    }
+
+    @Test
     public void discoveryRejectsRecoveryForAnUnrequestedChat() throws Exception {
         doAnswer(call -> {
             TdApi.Function request = call.getArgument(0);

@@ -78,6 +78,9 @@ public final class TelegramClientManager {
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
     private final Map<Long, GroupInfo> targetGroups = new ConcurrentHashMap<>();
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
+    private final Map<String, GroupSearchResults> publicSearches = new java.util.HashMap<>();
+    private static final int MAX_PUBLIC_SEARCHES = 16;
+    private static final int MAX_SEARCH_FOLLOWERS = 32;
     private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.User> userCache = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.Chat> chatCache = new ConcurrentHashMap<>();
@@ -800,7 +803,30 @@ public final class TelegramClientManager {
             return;
         }
 
-        GroupSearchResults collected = startGroupSearchOperation(callback, clean);
+        GroupSearchResults collected;
+        boolean rejected = false;
+        synchronized (publicSearches) {
+            GroupSearchResults existing = publicSearches.get(clean);
+            if (existing != null && existing.owner == local && !existing.finished.get()) {
+                if (existing.followers.size() >= MAX_SEARCH_FOLLOWERS) rejected = true;
+                else {
+                    if (callback != null) existing.followers.add(callback);
+                    return;
+                }
+            }
+            if (rejected || publicSearches.size() >= MAX_PUBLIC_SEARCHES) {
+                collected = null;
+            } else {
+                collected = startGroupSearchOperation(callback, clean);
+                collected.owner = local;
+                publicSearches.put(clean, collected);
+            }
+        }
+        if (collected == null) {
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(),
+                    "Telegram 429: درخواست‌های جستجوی هم‌زمان زیاد است؛ کمی بعد تلاش کن.");
+            return;
+        }
         sendSearchRequest(local, request, "public_group_search",
                 result -> processGroupSearchResult(local, result, true, collected, callback));
     }
@@ -829,6 +855,8 @@ public final class TelegramClientManager {
         final AtomicBoolean finished = new AtomicBoolean();
         ScheduledFuture<?> deadline;
         String query = "";
+        Client owner;
+        final List<DiscoveryCallback> followers = new ArrayList<>();
         int newItems;
     }
 
@@ -845,12 +873,18 @@ public final class TelegramClientManager {
                                            boolean success, String message) {
         List<Long> ids;
         int newItems;
+        List<DiscoveryCallback> callbacks;
         synchronized (collected) {
             if (!collected.finished.compareAndSet(false, true)) return;
             collected.deadline.cancel(false);
             ids = new ArrayList<>(collected.ids);
             newItems = collected.newItems;
         }
+        synchronized (publicSearches) {
+            callbacks = new ArrayList<>(collected.followers);
+            publicSearches.remove(collected.query, collected);
+        }
+        if (callback != null) callbacks.add(0, callback);
         GroupRanker ranker = new GroupRanker();
         Map<Long, Integer> scores = new java.util.HashMap<>();
         for (Long id : ids) {
@@ -861,7 +895,13 @@ public final class TelegramClientManager {
         }
         // List.sort is stable: equally relevant results keep their discovery order.
         ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed());
-        discoveryResult(callback, success, newItems, ids, message);
+        for (DiscoveryCallback receiver : callbacks) {
+            try {
+                discoveryResult(receiver, success, newItems, ids, message);
+            } catch (RuntimeException error) {
+                SEARCH_LOG.warning("Discovery callback failed: " + error.getClass().getSimpleName());
+            }
+        }
     }
 
     private void processGroupSearchResult(Client local, TdApi.Object result, boolean publicSearch,
