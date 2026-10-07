@@ -2,6 +2,13 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - "app/**"
+      - "*.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/build-apk.yml"
   push:
     branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain" ]
     paths:
@@ -9,6 +16,10 @@ on:
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
+
+concurrency:
+  group: build-apk-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -20,7 +31,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -36,7 +47,7 @@ jobs:
           "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: "8.9"
 
@@ -48,7 +59,7 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: regression-test-reports
           path: |
@@ -61,7 +72,7 @@ jobs:
         run: gradle --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: telegram-electric-debug
           path: app/build/outputs/apk/debug/app-debug.apk
