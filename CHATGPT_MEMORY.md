@@ -197,6 +197,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - تست UI وضعیت running/stopped، پاسخ بدون نتیجه و Activity نابودشده را پوشش می‌دهد؛ تست‌های موجود توقف و پاسخ دیررس نیز اجرا شدند.
 - فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۸ تست بدون failure/error/skip و lint/build موفق اجرا شد. آزمون بصری روی دستگاه اجرا نشده است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-008: پایهٔ وب
+
+- workspace مستقل `web/` با Next.js، React، TypeScript و npm lockfile در `86c3834` اضافه شد. صفحهٔ فارسی RTL، جستجوی GET نرمال‌شده و محدود به ۹۶ نویسه، و وضعیت catalog خالی دارد.
+- `npm test` با ۲ تست، `npm run typecheck` و `NEXT_TELEMETRY_DISABLED=1 npm run build` موفق شدند. smoke HTTP سرور تولیدی نیز RTL، query و وضعیت خالی را تأیید کرد؛ سرور آزمایشی پس از بررسی متوقف شد.
+- catalog عمومی هنوز خالی است و سرویس remote یا deployment پیکربندی نشده؛ بررسی بصری مرورگر اجرا نشده است. وب به نشست یا احراز هویت TDLib دسترسی ندارد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
