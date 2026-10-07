@@ -29,13 +29,12 @@ feat(smart-suggestions): complete TASK-012 smart suggestions
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: existing GroupKeywordBank/SmartKeywordQueue, WordBank, MainActivity and DiscoverySuggestionsTest. Curated related topics preserve query city, normalize/deduplicate, and cap expansion at eight. Bank UI offers explicit add buttons; suggestions never mutate the bank automatically, and existing terms are excluded.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 128 tests; no failures/errors/skips; lint and APK build passed.
+- Commit SHA: see `feat(smart-suggestions): offer bounded city-aware alternatives` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: curated suggestions cover electrical/cable/solar topics only; visual device testing unperformed.
 
 ## Next
 TASK-013
