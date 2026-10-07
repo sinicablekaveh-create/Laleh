@@ -134,6 +134,21 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فایل‌های cache، خروجی‌های موقت build و داده‌های خصوصی برنامه عمداً به GitHub ارسال نشدند.
 - CodeRabbit برای این آماده‌سازی اجرا نشد، زیرا هیچ تغییر کدی برای review وجود نداشت و CLI آن نیز در محیط نصب نبود.
 
+
+### ۷ اکتبر ۲۰۲۶ — سخت‌سازی CI برای pull requestها و Node 24
+
+- baseline مرجع `ci-baseline-ef701a9` بررسی شد و همچنان دقیقاً روی commit `ef701a9b584e31012962d88b43b7de2f0ef341d1` باقی ماند.
+- `main` پیش از تغییر فقط دو commit مستنداتی جلوتر از baseline بود و تغییر کد Android/TDLib نسبت به baseline نداشت.
+- در workflow `Build Android APK` یک شکاف CI شناسایی شد: validation روی `pull_request` شاخهٔ `main` اجرا نمی‌شد.
+- PR شمارهٔ ۲۳ با عنوان `ci: validate Android builds on pull requests` ایجاد شد و پس از validation موفق به‌صورت squash ادغام شد.
+- commit نهایی روی `main`: `3baf685566d78c5c0b1514a014fe4ea35165fd66` با عنوان `ci: validate PR builds on Node 24`.
+- workflow اکنون برای PRهای `main` نیز تست واحد، lint و ساخت APK را اجرا می‌کند و با `concurrency` اجرای تکراری هم‌زمان را لغو می‌کند.
+- actionهای GitHub به نسخه‌های Node 24-native به‌روزرسانی شدند: `actions/checkout@v5`، `gradle/actions/setup-gradle@v5` و `actions/upload-artifact@v6`.
+- validation روی commit نهایی PR: `testDebugUnitTest` موفق، `lintDebug` موفق، `assembleDebug` موفق و artifact `telegram-electric-debug` با موفقیت آپلود شد؛ هشدار قبلی Node 20 در اجرای جدید مشاهده نشد.
+- workflow پس از merge روی commit `3baf685` نیز با موفقیت کامل شد.
+- CodeRabbit به دلیل کمتر از ۱۰ ستاره بودن مخزن review خودکار اجرا نکرد؛ فرمان `@coderabbitai review` روی PR #23 به‌صورت دستی ارسال شد.
+- هیچ کد Android/TDLib، دادهٔ کاربر، credential یا session در این تغییر اصلاح یا ثبت نشد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
