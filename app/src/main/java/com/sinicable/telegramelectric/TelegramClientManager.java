@@ -903,8 +903,9 @@ public final class TelegramClientManager {
                     ? group.link.substring("https://t.me/".length()) : "";
             scores.put(id, group == null ? 0 : ranker.score(group.title, username, collected.query));
         }
-        // List.sort is stable: equally relevant results keep their discovery order.
-        ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed());
+        // Equal scores must remain deterministic even when cache recovery order changes.
+        ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed()
+                .thenComparingLong(Long::longValue));
         searchMetrics.discovered(ids.size());
         for (DiscoveryCallback receiver : callbacks) {
             try {

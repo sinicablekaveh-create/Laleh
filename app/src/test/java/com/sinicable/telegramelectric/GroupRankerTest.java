@@ -35,4 +35,12 @@ public class GroupRankerTest {
             Locale.setDefault(original);
         }
     }
+
+    @Test public void categoryWinsOverGenericCityMatchAndSubstringIsNotAWordMatch() {
+        String query = "برق صنعتی تهران";
+        assertTrue(ranker.score("برق صنعتی", "", query) > ranker.score("برق تهران", "", query));
+        assertEquals(0, ranker.score("ابرقدرت", "", "برق"));
+        assertEquals(ranker.score("برق صنعتی تهران", "", query),
+                ranker.score("برق، صنعتی؛ تهران", "", query));
+    }
 }

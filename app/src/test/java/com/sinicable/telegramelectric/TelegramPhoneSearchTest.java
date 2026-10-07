@@ -461,7 +461,7 @@ public class TelegramPhoneSearchTest {
         firstRecovery.get().onResult(group(-55L));
         assertTrue(result.completed.await(3, TimeUnit.SECONDS));
         assertTrue(result.message, result.success);
-        assertEquals(List.of(-55L, -56L), result.ids);
+        assertEquals(List.of(-56L, -55L), result.ids);
         assertEquals("Cache update must avoid another GetChat", 2, requests.size());
     }
 
