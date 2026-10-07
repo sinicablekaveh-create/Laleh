@@ -134,7 +134,6 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فایل‌های cache، خروجی‌های موقت build و داده‌های خصوصی برنامه عمداً به GitHub ارسال نشدند.
 - CodeRabbit برای این آماده‌سازی اجرا نشد، زیرا هیچ تغییر کدی برای review وجود نداشت و CLI آن نیز در محیط نصب نبود.
 
-
 ### ۷ اکتبر ۲۰۲۶ — سخت‌سازی CI برای pull requestها و Node 24
 
 - baseline مرجع `ci-baseline-ef701a9` بررسی شد و همچنان دقیقاً روی commit `ef701a9b584e31012962d88b43b7de2f0ef341d1` باقی ماند.
@@ -148,6 +147,15 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - workflow پس از merge روی commit `3baf685` نیز با موفقیت کامل شد.
 - CodeRabbit به دلیل کمتر از ۱۰ ستاره بودن مخزن review خودکار اجرا نکرد؛ فرمان `@coderabbitai review` روی PR #23 به‌صورت دستی ارسال شد.
 - هیچ کد Android/TDLib، دادهٔ کاربر، credential یا session در این تغییر اصلاح یا ثبت نشد.
+
+### ۷ اکتبر ۲۰۲۶ — ساخت APK اشکال‌زدایی
+
+- فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo assembleDebug` با JDK 17 و Gradle 8.9 اجرا شد.
+- Gradle با وضعیت `BUILD SUCCESSFUL` در ۷ ثانیه پایان یافت؛ ۳۴ task به‌روز بودند.
+- خروجی تأییدشده: `app/build/outputs/apk/debug/app-debug.apk`، حدود ۲۴ مگابایت، SHA-256: `21fa88aeea13bcf7edff6d6c66d61f1f39fe974ef81f51bafb81606b085230b9`.
+- محتوای APK شامل `classes.dex`، `AndroidManifest.xml` و کتابخانهٔ `lib/arm64-v8a/libtdjni.so` بررسی شد.
+- تست‌های واحد و lint در این اجرای کوتاه دوباره اجرا نشدند؛ نتیجهٔ ۱۰۳ تست و lint پیشین در بخش اعتبارسنجی باقی است.
+- APK قدیمی tracked پیش از build پشتیبان‌گیری و بعد از build بازیابی شد؛ هیچ فایل tracked دیگری تغییر نکرد.
 
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
