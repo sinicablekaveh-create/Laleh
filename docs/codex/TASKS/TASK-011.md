@@ -32,7 +32,7 @@ Use fix/perf/test/docs/refactor/ci when more accurate.
 Completed 2026-10-07.
 - Changed files: SearchQuery, TelegramClientManager and SearchQueryTest. The TDLib search path now normalizes bounded 96-codepoint queries. The parser recognizes curated electrical categories, five major cities, learning/market/discovery intent, and up to 16 unique immutable keywords. Phrase boundaries avoid false city matches.
 - Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 125 tests, no failures/errors/skips; lint and APK build passed.
-- Commit SHA: see `feat(query-understanding): analyze bounded discovery queries` in branch history.
+- Commit SHA: `cb9e35f` (`feat(query-understanding): analyze bounded discovery queries`).
 - Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
 - Remaining blockers: taxonomy is deliberately curated and finite; unknown categories/cities are left unclassified. Live TDLib search remains unperformed.
 

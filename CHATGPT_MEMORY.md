@@ -266,6 +266,13 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - تست‌های timeout/پاسخ دیررس، ack قدیمی، callback تکراری، retry پس از reconstruction و opt-out اجرا شدند. فرمان کامل تست/lint/build با ۱۳۸ تست بدون failure/error/skip موفق شد.
 - TASK-019 فقط از نظر pipeline محلی پیاده و اعتبارسنجی شده؛ sync واقعی مسدود است چون endpoint مجاز، سیاست authentication و منبع catalog عمومی تعیین نشده‌اند. هیچ delivery شبکه‌ای اجرا نشده است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-020 و وضعیت توقف زنجیره
+
+- در `cd98a16` validation Android/وب برای فیلد ناشناخته/خصوصی، ID غیرصحیح، schema/username نامعتبر، نویسهٔ کنترلی عنوان، revision ناسازگار cache و username تکراری index سخت‌تر شد. JSON صف محدود شده و rejection دائمی pause باقی می‌ماند.
+- آخرین validation واقعی: فرمان کامل Android با ۱۳۹ تست، صفر failure/error/skip، lint با ۳۵ warning و بدون error، APK موفق؛ وب با ۱۰ تست، typecheck و build تولیدی موفق. `npm audit --audit-level=high` صفر vulnerability گزارش کرد.
+- TASK-001 تا TASK-018 تکمیل‌اند؛ TASK-019 فقط pipeline محلی اعتبارسنجی شده و sync واقعی به endpoint/authentication/catalog مجاز نیاز دارد. TASK-020 به‌عنوان hardening مستقل انجام شد؛ TASK-021 تا TASK-055 pending هستند.
+- وضعیت قابل‌ادامه در `docs/codex/CHAIN_STATUS.md` ثبت شده؛ سؤال پیکربندی سرویس به کاربر ارسال شد. مجوز کل زنجیره برقرار است و تأیید عمومی دوباره لازم نیست. secret/token نباید در chat یا Git ثبت شود.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI

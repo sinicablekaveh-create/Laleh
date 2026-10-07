@@ -32,7 +32,7 @@ Use fix/perf/test/docs/refactor/ci when more accurate.
 Completed 2026-10-07.
 - Changed files: TelegramClientManager and TelegramPhoneSearchTest. Concurrent equivalent normalized public queries share one request for the current client; completion/error fans out once per subscriber. Finished operations are removed, another search can start, and an exception in one subscriber cannot starve others. At most 16 public operations and 32 additional subscribers per operation are retained.
 - Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 130 tests, no failures/errors/skips; lint and APK build passed. Lock ordering was reviewed to avoid nesting the operation lock beneath the public-search map lock.
-- Commit SHA: see `perf(discovery-improvements): coalesce concurrent public searches` in branch history.
+- Commit SHA: `af6ab47` (`perf(discovery-improvements): coalesce concurrent public searches`).
 - Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
 - Remaining blockers: related discovery uses TASK-012 user-selected curated alternatives; no automatic traversal of live Telegram groups is introduced. Device/live validation unperformed.
 

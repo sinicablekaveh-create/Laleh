@@ -32,7 +32,7 @@ Use fix/perf/test/docs/refactor/ci when more accurate.
 Completed 2026-10-07.
 - Changed files: MainActivity and WordBankUiTest. Running searches display a progress indicator and waiting message, stopped/initial searches give a start action, and successful zero-result attempts have a distinct message. Existing stop/stale-generation behavior remains covered by integration tests; a destroyed-Activity UI test rejects late rendering.
 - Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 118 tests, no failures/errors/skips; lint and APK build passed.
-- Commit SHA: see `feat(search-ui-enhancement): show search progress and empty states` in branch history.
+- Commit SHA: `287c13b` (`feat(search-ui-enhancement): show search progress and empty states`).
 - Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
 - Remaining blockers: visual/device testing unperformed; unit UI checks use controlled Android mocks.
 
