@@ -185,6 +185,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فیلتر نوع TDLib مستقیم شده و شناسهٔ صفر رد می‌شود. تست پاسخ مختلط شامل گروه پایه، سوپرگروه، کانال، چت خصوصی/secret، نوع نامشخص و شناسهٔ تکراری است.
 - فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۱ تست و بدون failure/error/skip موفق شد؛ lint و ساخت APK نیز موفق بودند. آزمون واقعی دستگاه اجرا نشده است.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-006: رتبه‌بندی مرتبط بودن
+
+- GroupRanker موجود به callback واقعی جستجو متصل شد؛ عنوان دقیق، عبارت کامل، username و tokenهای موضوع/شهر در query امتیاز دارند. تعداد اعضا در امتیاز دخالت ندارد؛ امتیاز برابر ترتیب دریافت را حفظ می‌کند.
+- تست‌ها نرمال‌سازی فارسی/عربی، Locale ترکی، query خالی و رتبه‌بندی callback را بررسی می‌کنند. فرمان `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با ۱۱۵ تست بدون failure/error/skip و lint/build موفق اجرا شد.
+- وزن‌ها heuristic هستند؛ ارزیابی relevance با دادهٔ واقعی و آزمون دستگاه اجرا نشده است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
