@@ -157,6 +157,13 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - تست‌های واحد و lint در این اجرای کوتاه دوباره اجرا نشدند؛ نتیجهٔ ۱۰۳ تست و lint پیشین در بخش اعتبارسنجی باقی است.
 - APK قدیمی tracked پیش از build پشتیبان‌گیری و بعد از build بازیابی شد؛ هیچ فایل tracked دیگری تغییر نکرد.
 
+### ۷ اکتبر ۲۰۲۶ — تکمیل TASK-001: audit مخزن
+
+- معماری واقعی Android، Gradle، TDLib، جست‌وجوی گروه، صف واژه، ذخیره‌سازی، سرویس پس‌زمینه، تست‌ها و CI بررسی شد.
+- گزارش شواهد در `docs/codex/TASKS/TASK-001-AUDIT.md` ثبت شد؛ این مرحله رفتار محصول را تغییر نداد.
+- فرمان `gradle --no-daemon --max-workers=4 --rerun-tasks -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` با موفقیت اجرا شد: ۱۰۳ تست، ۰ شکست، ۰ خطا، ۰ ردشده؛ lint با ۰ خطا و ۳۷ هشدار؛ APK اشکال‌زدایی ساخته شد.
+- فقط `TelegramClientManager` در کد تولیدی TDLib client می‌سازد. مسیر بازیابی `BackgroundCoreService` هنگام نبود `BackgroundRuntime` باید در مراحل بعد با آزمون چرخهٔ حیات محافظت شود تا یک نشست فعال حفظ شود.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
