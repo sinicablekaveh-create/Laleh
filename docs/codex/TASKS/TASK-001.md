@@ -34,7 +34,7 @@ Completed audit evidence is recorded in `TASK-001-AUDIT.md`.
 - Changed files: `docs/codex/TASKS/TASK-001-AUDIT.md`, this completion record, and `CHATGPT_MEMORY.md`.
 - Test commands/results: `gradle --no-daemon --max-workers=4 --rerun-tasks -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — 103 tests passed, 0 failures, 0 errors, 0 skipped; lint completed with 0 errors and 37 warnings.
 - Build commands/results: the same command produced `app/build/outputs/apk/debug/app-debug.apk` successfully in 23 seconds.
-- Commit SHA: recorded with the validated TASK-001 documentation commit.
+- Commit SHA: `22479347374bdef9c2c69275d5e819cc2eefd8a1` (`docs(repository-audit): complete TASK-001`).
 - Pull Request: to be created from the scoped `codex/task-001-audit` branch when GitHub API access is available.
 - Remaining blockers: real-device and real Telegram-auth testing require a compatible device and user-provided runtime credentials; no source-code blocker was found for TASK-002.
 

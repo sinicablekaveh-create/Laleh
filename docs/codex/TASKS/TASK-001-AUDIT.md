@@ -1,6 +1,6 @@
 # TASK-001 — Repository Audit Record
 
-Audit date: 2026-10-07 (Asia/Tehran)  
+Audit date: 2026-10-07 (Asia/Tehran)
 Repository snapshot: `22c9a0881401ec421363cff9163bf92a2406bc8f`
 
 ## Scope and outcome
