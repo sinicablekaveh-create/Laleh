@@ -30,3 +30,10 @@ test("pages and immutable output are bounded and malformed private rows are reje
   assert.ok(Object.isFrozen(page.hits));
   assert.equal(index.upsert({ ...row("-100", "public"), session: "synthetic" }), false);
 });
+
+test("duplicate usernames cannot identify distinct groups and revisions release former aliases", () => {
+  const index = new MemoryDiscoveryIndex([row("-1", "برق")]);
+  assert.equal(index.upsert({ ...row("-2", "public"), username: "group_1" }), false);
+  assert.equal(index.upsert({ ...row("-1", "برق", "2"), username: "renamed_group" }), true);
+  assert.equal(index.upsert({ ...row("-2", "public"), username: "group_1" }), true);
+});

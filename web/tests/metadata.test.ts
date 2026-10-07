@@ -16,4 +16,5 @@ test("v1 safe integer rows migrate and unknown/private fields are rejected", () 
   assert.equal(parsePublicMetadata({ ...row, schemaVersion: 99 }), null);
   assert.equal(parsePublicMetadata({ ...row, groupId: "-9223372036854775809" }), null);
   assert.equal(parsePublicMetadata({ ...row, username: "https://invalid.test" }), null);
+  assert.equal(parsePublicMetadata({ ...row, title: "public\u202e" }), null);
 });

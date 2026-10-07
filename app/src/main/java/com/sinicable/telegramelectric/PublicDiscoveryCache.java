@@ -61,6 +61,7 @@ public final class PublicDiscoveryCache {
         prune();
         Entry old = entries.get(item.groupId);
         if (old != null && old.item.revision > item.revision) return false;
+        if (old != null && old.item.revision == item.revision && !old.item.sameContent(item)) return false;
         entries.put(item.groupId, new Entry(item, clock.getAsLong()));
         while (entries.size() > CAPACITY) entries.remove(entries.keySet().iterator().next());
         persist();

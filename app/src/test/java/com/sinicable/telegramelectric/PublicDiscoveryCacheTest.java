@@ -31,6 +31,7 @@ public class PublicDiscoveryCacheTest {
         assertNull(cache.get(-2));
         assertNotNull(cache.get(-1));
         assertFalse(cache.put(item(-1, 1)));
+        assertFalse(cache.put(new DiscoveryMetadata(-1, "conflicting title", "electric_group", "برق", "تهران", 2)));
         cache.invalidate(-1);
         assertNull(cache.get(-1));
         cache.clear();

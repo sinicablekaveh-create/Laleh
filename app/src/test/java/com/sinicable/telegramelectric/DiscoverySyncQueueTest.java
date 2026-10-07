@@ -62,4 +62,18 @@ public class DiscoverySyncQueueTest {
                 .put("groupId", -55L).put("revision", 1L);
         assertEquals(-55L, DiscoveryMetadata.fromJson(old).groupId);
     }
+
+    @Test public void metadataRejectsPrivateFieldsNonIntegralIdsAndControlCharacters() throws Exception {
+        org.json.JSONObject extra = item(-55, 1).toJson().put("phone", "synthetic");
+        assertThrows(IllegalArgumentException.class, () -> DiscoveryMetadata.fromJson(extra));
+        org.json.JSONObject fractional = item(-55, 1).toJson().put("schemaVersion", 1)
+                .put("groupId", -55.5).put("revision", 1);
+        assertThrows(IllegalArgumentException.class, () -> DiscoveryMetadata.fromJson(fractional));
+        assertThrows(IllegalArgumentException.class, () -> new DiscoveryMetadata(-55,
+                "برق\u202e", "electric_group", "", "", 1));
+        assertThrows(IllegalArgumentException.class, () -> new DiscoveryMetadata(-55,
+                "\u0000public", "electric_group", "", "", 1));
+        org.json.JSONObject noncanonical = item(-55, 1).toJson().put("username", "ELECTRIC_GROUP");
+        assertThrows(IllegalArgumentException.class, () -> DiscoveryMetadata.fromJson(noncanonical));
+    }
 }

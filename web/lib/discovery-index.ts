@@ -19,6 +19,7 @@ function phrase(text: string, query: string): boolean {
 export class MemoryDiscoveryIndex implements DiscoveryIndex {
   static readonly capacity = 10_000;
   private readonly rows = new Map<string, PublicGroup>();
+  private readonly usernames = new Map<string, string>();
   private readonly postings = new Map<string, Set<string>>();
   private readonly rowWords = new Map<string, Set<string>>();
 
@@ -30,6 +31,8 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
     const row = parsePublicMetadata(value);
     if (!row) return false;
     const previous = this.rows.get(row.groupId);
+    const usernameOwner = this.usernames.get(row.username);
+    if (usernameOwner && usernameOwner !== row.groupId) return false;
     if (previous && BigInt(previous.revision) >= BigInt(row.revision)) return false;
     if (!previous && this.rows.size >= MemoryDiscoveryIndex.capacity) return false;
     for (const word of this.rowWords.get(row.groupId) ?? []) {
@@ -44,6 +47,8 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
       this.postings.set(word, ids);
     }
     this.rowWords.set(row.groupId, terms);
+    if (previous && previous.username !== row.username) this.usernames.delete(previous.username);
+    this.usernames.set(row.username, row.groupId);
     this.rows.set(row.groupId, row);
     return true;
   }

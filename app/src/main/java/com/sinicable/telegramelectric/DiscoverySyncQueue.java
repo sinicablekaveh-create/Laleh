@@ -33,7 +33,8 @@ public final class DiscoverySyncQueue {
         enabled = prefs.getBoolean(KEY_ENABLED, false);
         if (!enabled) return;
         try {
-            JSONArray items = new JSONArray(prefs.getString(KEY_QUEUE, "[]"));
+            String raw = prefs.getString(KEY_QUEUE, "[]");
+            JSONArray items = new JSONArray(raw != null && raw.length() <= 1_000_000 ? raw : "[]");
             for (int i = 0; i < Math.min(items.length(), CAPACITY); i++) {
                 try {
                     DiscoveryMetadata item = DiscoveryMetadata.fromJson(items.getJSONObject(i));
@@ -43,7 +44,8 @@ public final class DiscoverySyncQueue {
             }
         } catch (JSONException ignored) { /* Corrupt outbox is treated as empty, without logging content. */ }
         try {
-            JSONArray values = new JSONArray(prefs.getString(KEY_RETRIES, "[]"));
+            String raw = prefs.getString(KEY_RETRIES, "[]");
+            JSONArray values = new JSONArray(raw != null && raw.length() <= 1_000_000 ? raw : "[]");
             for (int i = 0; i < Math.min(values.length(), CAPACITY); i++) {
                 JSONObject value = values.getJSONObject(i);
                 long id = value.getLong("groupId"), revision = value.getLong("revision");
@@ -91,7 +93,7 @@ public final class DiscoverySyncQueue {
         if (!enabled) return null;
         for (DiscoveryMetadata item : pending.values()) {
             Retry retry = retries.get(item.groupId);
-            if (retry == null || retry.readyAt <= now) return item;
+            if (retry == null || (retry.readyAt != Long.MAX_VALUE && retry.readyAt <= now)) return item;
         }
         return null;
     }
