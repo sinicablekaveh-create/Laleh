@@ -165,6 +165,13 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - فقط `TelegramClientManager` در کد تولیدی TDLib client می‌سازد. مسیر بازیابی `BackgroundCoreService` هنگام نبود `BackgroundRuntime` باید در مراحل بعد با آزمون چرخهٔ حیات محافظت شود تا یک نشست فعال حفظ شود.
 - شواهد و commitها در شاخهٔ `codex/task-001-audit` روی GitHub ارسال شدند. ساخت خودکار PR از این محیط به‌دلیل پاسخ `Forbidden` از GitHub GraphQL انجام نشد.
 
+### ۷ اکتبر ۲۰۲۶ — تکمیل TASK-002: هستهٔ جست‌وجوی گروه
+
+- خروجی جست‌وجوی گروه در `TelegramClientManager` اکنون شناسه‌ها را با ترتیب دریافت حفظ می‌کند و شناسهٔ تکراری را پیش از capture و شمارش نادیده می‌گیرد؛ این محافظ در برابر callback یا مسیر بازیابی تکراری است.
+- تست بازگشت `groupSearchCollectionReportsARepeatedGroupOnlyOnce` تضمین می‌کند یک گروه تکراری فقط یک‌بار در callback و شمارش نتیجه ظاهر شود.
+- تست هدفمند `TelegramPhoneSearchTest` با ۲۰ تست موفق شد. اجرای کامل `testDebugUnitTest lintDebug assembleDebug` نیز با ۱۰۴ تست موفق، صفر failure/error/skip و lint بدون error (۳۸ warning) موفق شد.
+- commit تغییر کد: `400eaad4ea31431d1ec69f37d2316c5ff63adde0` در شاخهٔ `codex/task-001-audit`.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
