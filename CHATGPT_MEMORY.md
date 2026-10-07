@@ -233,6 +233,11 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - منابع محدود به ۱۶ عملیات و ۳۲ subscriber اضافه برای هر عملیات هستند؛ ترتیب قفل‌ها برای callback هم‌زمان بازبینی شد. discovery مرتبط از پیشنهادهای curated و انتخاب کاربر TASK-012 استفاده می‌کند.
 - فرمان کامل تست/lint/build با ۱۳۰ تست بدون failure/error/skip موفق شد؛ تست coalescing فارسی/عربی، پاسخ تکراری، cleanup و خطای subscriber اجرا شد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-014: آمار محلی جستجو
+
+- SearchMetrics snapshot عددی و synchronized از درخواست/پاسخ/خطا/timeout، cache/coalescing، تعداد نتیجه و زمان پاسخ فراهم می‌کند. هیچ query، شناسه، عنوان، شماره یا دادهٔ نشست در metrics ذخیره نمی‌شود و آمار شبکه‌ای ارسال نمی‌شود.
+- تست فیزیکی coalescing یک درخواست و یک completion برای چند subscriber را تأیید می‌کند؛ snapshot قبلی immutable باقی می‌ماند. فرمان کامل تست/lint/build با ۱۳۱ تست بدون failure/error/skip موفق شد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI

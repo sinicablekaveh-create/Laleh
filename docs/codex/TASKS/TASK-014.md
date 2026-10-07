@@ -29,13 +29,12 @@ feat(search-analytics): complete TASK-014 search analytics
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: SearchMetrics, TelegramClientManager and tests. Lifetime-local synchronized numeric snapshots report request/completion/failure/timeout counts, cache hits, coalesced requests, discovery result counts and total/max response latency. No query, group identifier/title, contact, credential or session data is retained in metrics.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 131 tests, no failures/errors/skips; lint and APK build passed. Integration checks one physical request and one completion despite two subscribers and duplicated callback.
+- Commit SHA: see `feat(search-analytics): add content-free local metrics` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: metrics are local to the manager lifetime, not persisted or sent to a monitoring service; protocol-level success counts do not assert semantic validity of every response.
 
 ## Next
 TASK-015
