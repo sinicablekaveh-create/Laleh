@@ -398,6 +398,44 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void discoveryRechecksCacheBeforeFetchingNextMissingChat() throws Exception {
+        AtomicReference<Client.ResultHandler> firstRecovery = new AtomicReference<>();
+        doAnswer(call -> {
+            TdApi.Function request = call.getArgument(0);
+            requests.add(request);
+            Client.ResultHandler handler = call.getArgument(1);
+            if (request instanceof TdApi.GetChat) firstRecovery.set(handler);
+            else handler.onResult(chats(-55L, -56L));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        update(new TdApi.UpdateNewChat(group(-56L)));
+        firstRecovery.get().onResult(group(-55L));
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        assertEquals(List.of(-55L, -56L), result.ids);
+        assertEquals("Cache update must avoid another GetChat", 2, requests.size());
+    }
+
+    @Test
+    public void discoveryRejectsRecoveryForAnUnrequestedChat() throws Exception {
+        doAnswer(call -> {
+            TdApi.Function request = call.getArgument(0);
+            requests.add(request);
+            ((Client.ResultHandler) call.getArgument(1)).onResult(request instanceof TdApi.GetChat
+                    ? group(-99L) : chats(-55L));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(result.success);
+        assertTrue(result.ids.isEmpty());
+        assertTrue(manager.getFoundGroups().isEmpty());
+    }
+
+    @Test
     public void wholeDiscoveryDeadlinePreservesPartialIdsAndStopsFurtherCacheRecovery() throws Exception {
         update(new TdApi.UpdateNewChat(group(-50L)));
         Field timerField = TelegramClientManager.class.getDeclaredField("REQUEST_TIMER");

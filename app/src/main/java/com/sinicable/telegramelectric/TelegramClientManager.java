@@ -908,7 +908,16 @@ public final class TelegramClientManager {
         }
         synchronized (collected) {
             if (collected.finished.get()) return;
-            sendSearchRequest(local, new TdApi.GetChat(missing.get(index)), "search_chat_cache_recovery", result -> {
+            long expectedId = missing.get(index);
+            // TDLib updates can populate the cache while earlier chats are being recovered.
+            TdApi.Chat cached = chatCache.get(expectedId);
+            if (cached != null) {
+                collectGroupSearchResult(cached, publicSearch, collected);
+                runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
+                        publicSearch, collected, callback));
+                return;
+            }
+            sendSearchRequest(local, new TdApi.GetChat(expectedId), "search_chat_cache_recovery", result -> {
                 if (collected.finished.get()) return;
                 if (!(result instanceof TdApi.Chat)) {
                     String message = result instanceof TdApi.Error
@@ -918,6 +927,11 @@ public final class TelegramClientManager {
                     return;
                 }
                 TdApi.Chat chat = (TdApi.Chat) result;
+                if (chat.id != expectedId) {
+                    finishGroupSearch(collected, callback, false,
+                            "دریافت نتایج جستجو کامل نشد: شناسهٔ پاسخ گروه معتبر نبود.");
+                    return;
+                }
                 chatCache.put(chat.id, chat);
                 collectGroupSearchResult(chat, publicSearch, collected);
                 runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
