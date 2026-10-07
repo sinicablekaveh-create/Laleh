@@ -53,4 +53,13 @@ public class DiscoverySyncQueueTest {
         assertEquals(7, item(-1, 1).toJson().length());
         assertEquals(-1, DiscoveryMetadata.fromJson(item(-1, 1).toJson()).groupId);
     }
+
+    @Test public void schemaTwoPreservesLongBoundariesAndReadsLegacySchema() throws Exception {
+        DiscoveryMetadata value = item(Long.MIN_VALUE, Long.MAX_VALUE);
+        assertEquals(Long.toString(Long.MIN_VALUE), value.toJson().getString("groupId"));
+        assertEquals(Long.MAX_VALUE, DiscoveryMetadata.fromJson(value.toJson()).revision);
+        org.json.JSONObject old = item(-55, 1).toJson().put("schemaVersion", 1)
+                .put("groupId", -55L).put("revision", 1L);
+        assertEquals(-55L, DiscoveryMetadata.fromJson(old).groupId);
+    }
 }

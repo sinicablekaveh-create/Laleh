@@ -36,14 +36,19 @@ public final class DiscoveryMetadata {
 
     public String publicLink() { return "https://t.me/" + username; }
 
-    JSONObject toJson() throws JSONException {
-        return new JSONObject().put("schemaVersion", 1).put("groupId", groupId)
+    public JSONObject toJson() throws JSONException {
+        return new JSONObject().put("schemaVersion", 2).put("groupId", Long.toString(groupId))
                 .put("title", title).put("username", username).put("category", category)
-                .put("location", location).put("revision", revision);
+                .put("location", location).put("revision", Long.toString(revision));
     }
 
-    static DiscoveryMetadata fromJson(JSONObject json) throws JSONException {
-        if (json.getInt("schemaVersion") != 1) throw new IllegalArgumentException("Unsupported schema");
+    public static DiscoveryMetadata fromJson(JSONObject json) throws JSONException {
+        int version = json.getInt("schemaVersion");
+        if (version != 1 && version != 2) throw new IllegalArgumentException("Unsupported schema");
+        if (version == 2 && (!(json.get("groupId") instanceof String)
+                || !(json.get("revision") instanceof String))) {
+            throw new IllegalArgumentException("Decimal string identities required");
+        }
         return new DiscoveryMetadata(json.getLong("groupId"), json.getString("title"),
                 json.getString("username"), json.getString("category"),
                 json.getString("location"), json.getLong("revision"));
