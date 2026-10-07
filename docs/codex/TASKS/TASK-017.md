@@ -29,13 +29,13 @@ feat(index-architecture): complete TASK-017 index architecture
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07 (public index abstraction).
+- Changed files: web/lib/discovery-index.ts and deterministic tests. DiscoveryIndex separates consumers from authoritative storage/transport. MemoryDiscoveryIndex validates public records, caps rows at 10,000, indexes normalized tokens, supports staged prefixes, intersects query candidates, removes stale postings on higher revisions and returns immutable pages capped at 50 hits. Relevance/id ties are deterministic.
+- Test commands/results: `npm test` — 7 tests PASS; `npm run typecheck` — PASS.
+- Build commands/results: `NEXT_TELEMETRY_DISABLED=1 npm run build` — PASS.
+- Commit SHA: see `feat(index-architecture): add bounded public inverted index` in branch history.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: catalog source/remote adapter and web search wiring belong to subsequent tasks. Tests use synthetic public-shaped records; no live public index exists yet.
 
 ## Next
 TASK-018

@@ -249,6 +249,11 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - parser وب whitelist، range، نوع و schema را کنترل می‌کند و record immutable برمی‌گرداند. مرزهای Long.MIN/MAX و نسخهٔ قدیمی تست شدند.
 - فرمان کامل Android با ۱۳۳ تست بدون failure/error/skip و lint/build موفق؛ وب با ۴ تست موفق، typecheck و build تولیدی موفق اعتبارسنجی شد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-017: index عمومی
+
+- interface مستقل DiscoveryIndex و index مشتق‌شدهٔ tokenهای عمومی در وب اضافه شد؛ حداکثر ۱۰هزار رکورد، query prefix/intersection، revision monotonic، حذف posting قدیمی و صفحه‌های immutable با حداکثر ۵۰ hit دارد.
+- `npm test` با ۷ تست، typecheck و build تولیدی موفق شدند. تست‌ها synthetic هستند؛ catalog واقعی و adapter سرویس remote هنوز وجود ندارد.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
