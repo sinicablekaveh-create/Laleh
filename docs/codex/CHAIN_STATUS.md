@@ -11,7 +11,8 @@ Updated 2026-10-07 (Asia/Tehran). Branch: `codex/task-001-audit`.
 | TASK-019 | Local retry-safe delivery adapter implemented and tested; actual remote delivery blocked. |
 | TASK-020 | Independent local data-validation increment completed; live TASK-019 dependency remains blocked. |
 | TASK-021 | Local catalog search, cached results, pagination and truthful empty state completed. |
-| TASK-022–055 | Pending; not represented as completed. |
+| TASK-022 | Public-only responsive category and group detail pages completed. |
+| TASK-023–055 | Pending; not represented as completed. |
 
 The completion record in each task links the implementation commit and actual
 validation command. Latest validation: 139 Android tests, zero failures/errors/skips,
