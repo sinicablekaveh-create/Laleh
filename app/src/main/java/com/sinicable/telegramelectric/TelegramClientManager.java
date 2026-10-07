@@ -1572,16 +1572,10 @@ public final class TelegramClientManager {
     }
 
     private static boolean isGroupChat(TdApi.Chat chat) {
-        if (chat == null) return false;
+        if (chat == null || chat.id == 0) return false;
         if (chat.type instanceof TdApi.ChatTypeBasicGroup) return true;
         if (chat.type instanceof TdApi.ChatTypeSupergroup) {
-            try {
-                Field field = chat.type.getClass().getField("isChannel");
-                Object value = field.get(chat.type);
-                return !(value instanceof Boolean) || !((Boolean) value);
-            } catch (Throwable ignored) {
-                return true;
-            }
+            return !((TdApi.ChatTypeSupergroup) chat.type).isChannel;
         }
         return false;
     }

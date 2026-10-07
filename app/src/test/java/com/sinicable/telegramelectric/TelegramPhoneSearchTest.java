@@ -381,6 +381,34 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void discoveryRetainsOnlyValidGroupsAndDeduplicatesInResponseOrder() throws Exception {
+        TdApi.Chat basic = group(-51L);
+        basic.type = new TdApi.ChatTypeBasicGroup();
+        TdApi.Chat supergroup = group(-52L);
+        TdApi.Chat channel = group(-53L);
+        ((TdApi.ChatTypeSupergroup) channel.type).isChannel = true;
+        TdApi.Chat privateChat = group(54L);
+        privateChat.type = new TdApi.ChatTypePrivate();
+        TdApi.Chat secretChat = group(55L);
+        secretChat.type = new TdApi.ChatTypeSecret();
+        TdApi.Chat unknown = group(56L);
+        unknown.type = null;
+        for (TdApi.Chat chat : List.of(basic, supergroup, channel, privateChat, secretChat,
+                unknown, group(0L))) {
+            update(new TdApi.UpdateNewChat(chat));
+        }
+        response = chats(-52L, -51L, -52L, -53L, 54L, 55L, 56L, 0L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        assertEquals(List.of(-52L, -51L), result.ids);
+        assertEquals(2, result.newItems);
+        assertEquals(2, manager.getFoundGroups().size());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
     public void discoveryUnexpectedResponsesAndTransportFailuresAreFailures() throws Exception {
         response = new TdApi.Ok();
         DetailedResult unexpected = new DetailedResult();
