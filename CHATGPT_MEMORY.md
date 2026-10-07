@@ -254,6 +254,12 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - interface مستقل DiscoveryIndex و index مشتق‌شدهٔ tokenهای عمومی در وب اضافه شد؛ حداکثر ۱۰هزار رکورد، query prefix/intersection، revision monotonic، حذف posting قدیمی و صفحه‌های immutable با حداکثر ۵۰ hit دارد.
 - `npm test` با ۷ تست، typecheck و build تولیدی موفق شدند. تست‌ها synthetic هستند؛ catalog واقعی و adapter سرویس remote هنوز وجود ندارد.
 
+### ۷ اکتبر ۲۰۲۶ — TASK-018: cache عمومی
+
+- cache پایدار عمومی Android در preferences موجود، حداکثر ۲۰۰ رکورد و TTL حداکثر یک روز دارد؛ expiry، برگشت ساعت، revision قدیمی، LRU و clear/invalidate بررسی شدند.
+- cache پاسخ وب محدود به ۲۰۰ entry، ۵۰ hit و key به طول ۵۱۲ است؛ ورودی و خروجی copy می‌شوند و TTL/LRU/clear دارد.
+- Android با ۱۳۵ تست بدون failure/error/skip و lint/build موفق؛ وب با ۹ تست موفق، typecheck و build تولیدی موفق اعتبارسنجی شد. اتصال به provider/delivery در مراحل بعد باقی است.
+
 ### تاریخچهٔ نزدیک پروژه پیش از ثبت این حافظه
 
 - `ef701a9`: اعتبارسنجی lint پیش از ساخت APK در CI
