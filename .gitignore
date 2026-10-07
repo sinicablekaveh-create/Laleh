@@ -4,3 +4,8 @@ local.properties
 **/build/
 *.iml
 .DS_Store
+web/node_modules/
+web/.next/
+web/coverage/
+web/*.tsbuildinfo
+web/.env*
