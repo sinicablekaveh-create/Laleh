@@ -958,6 +958,21 @@ public final class MainActivity extends Activity {
         if (list.isEmpty()) {
             wordList.addView(text("واژه‌ای برای نمایش وجود ندارد.", 14, false), matchWrap());
         }
+        List<String> suggestions = wordBank.suggestions(query);
+        if (!suggestions.isEmpty()) {
+            wordList.addView(text("پیشنهاد برای افزودن به بانک واژه", 14, true), matchWrap());
+            for (String suggestion : suggestions) {
+                Button addSuggestion = button("افزودن «" + suggestion + "»");
+                addSuggestion.setOnClickListener(v -> {
+                    if (wordBank.add(suggestion)) {
+                        wordFeedbackText.setText("پیشنهاد به بانک واژه افزوده شد.");
+                        corePanel.getCore().onWordBankChanged();
+                    }
+                    refreshWords(searchInput.getText().toString());
+                });
+                wordList.addView(addSuggestion, matchWrap());
+            }
+        }
         wordPageText.setText("صفحه " + (wordPage + 1) + " از " + pages);
         previousWordPageButton.setEnabled(wordPage > 0);
         nextWordPageButton.setEnabled(wordPage + 1 < pages);

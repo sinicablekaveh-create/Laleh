@@ -10,6 +10,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
+import com.sinicable.telegramelectric.groupsearch.GroupKeywordBank;
+import com.sinicable.telegramelectric.groupsearch.SmartKeywordQueue;
 
 public final class WordBank {
     private static final String PREFS = "electrical_word_bank";
@@ -175,6 +177,16 @@ public final class WordBank {
 
     public synchronized int size() {
         return words.size();
+    }
+
+    /** Curated alternatives are suggestions only; they never mutate or relearn deleted words. */
+    public synchronized List<String> suggestions(String query) {
+        if (SearchQuery.parse(query).normalized.isEmpty()) return Collections.emptyList();
+        List<String> related = new GroupKeywordBank().related(query);
+        if (related.isEmpty()) return Collections.emptyList();
+        List<String> result = new SmartKeywordQueue().build(query, related);
+        result.removeIf(value -> words.contains(value) || !isCandidate(value));
+        return result;
     }
 
     public synchronized int learnedSignalCount() {
