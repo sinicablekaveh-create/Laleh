@@ -13,4 +13,8 @@ npm run build
 ```
 
 Use `npm run dev` for local development or `npm start` after a production build.
-Only explicitly approved public metadata may be connected in later sync/index tasks.
+The server searches `data/public-groups.json` through the validated local index and
+30-second bounded result cache. The committed catalog is empty. Operators may add
+only explicitly approved public records conforming to `shared/discovery.schema.json`.
+Malformed/private rows are rejected; never copy Telegram session/contact databases
+into this file. There is no network synchronization service configured.

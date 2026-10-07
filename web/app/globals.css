@@ -20,5 +20,10 @@ button { border: 0; color: white; background: var(--ink); cursor: pointer; }
 .empty { padding: 36px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf7; }
 .empty > span { font-size: 30px; color: var(--accent); }
 h2 { font-size: 19px; }
+.results { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.group { border: 1px solid var(--line); background: #fffdf7; border-radius: 14px; padding: 24px; }
+.group h3 { margin: 0; }
+.group p { color: var(--muted); }
+.pages { display: flex; gap: 32px; padding: 20px 0; }
 footer { margin-top: 60px; padding: 28px 0 40px; border-top: 1px solid var(--line); max-width: 740px; }
 @media (max-width: 600px) { main { padding: 0 20px; } header { min-height: 90px; } header > a:last-child { font-size: 12px; } .hero { padding-top: 40px; } .search { flex-direction: column; } .empty { padding: 24px; } }
