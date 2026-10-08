@@ -1,6 +1,6 @@
 # Laleh execution status
 
-Updated 2026-10-07 (Asia/Tehran). Branch: `codex/task-001-audit`.
+Updated 2026-10-08 (Asia/Tehran). Branch: `codex/task-023-search-experience-20261008`.
 
 | Tasks | Evidence-backed state |
 | --- | --- |
@@ -12,7 +12,8 @@ Updated 2026-10-07 (Asia/Tehran). Branch: `codex/task-001-audit`.
 | TASK-020 | Independent local data-validation increment completed; live TASK-019 dependency remains blocked. |
 | TASK-021 | Local catalog search, cached results, pagination and truthful empty state completed. |
 | TASK-022 | Public-only responsive category and group detail pages completed. |
-| TASK-023–055 | Pending; not represented as completed. |
+| TASK-023 | Local filter/sort/accessibility/mobile slice implemented and validated; publication evidence follows. |
+| TASK-024–055 | Pending; not represented as completed. |
 
 The completion record in each task links the implementation commit and actual
 validation command. Latest validation: 139 Android tests, zero failures/errors/skips,

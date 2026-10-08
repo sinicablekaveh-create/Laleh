@@ -1,11 +1,12 @@
 import { parsePublicMetadata, type PublicGroup } from "./metadata.ts";
 import { normalizeQuery, searchQuery } from "./query.ts";
+import { searchOptions, type SearchOptions } from "./search-options.ts";
 
 export type SearchHit = Readonly<{ group: PublicGroup; score: number }>;
 export type SearchPage = Readonly<{ query: string; total: number; offset: number; limit: number; hits: readonly SearchHit[] }>;
 export interface DiscoveryIndex {
   get(groupId: string): PublicGroup | undefined;
-  search(query: string, offset?: number, limit?: number): SearchPage;
+  search(query: string, offset?: number, limit?: number, options?: SearchOptions): SearchPage;
 }
 
 function words(text: string): string[] {
@@ -62,7 +63,13 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
       .map(([name, count]) => Object.freeze({ name, count }));
   }
 
-  search(raw: string, offset = 0, limit = 20): SearchPage {
+  locations(): readonly string[] {
+    return [...new Set([...this.rows.values()].map(row => row.location).filter(Boolean))]
+      .sort((a, b) => a.localeCompare(b, "fa"));
+  }
+
+  search(raw: string, offset = 0, limit = 20, options: SearchOptions = {}): SearchPage {
+    const filters = searchOptions(options);
     const query = searchQuery(raw);
     const terms = [...new Set(words(query))].slice(0, 16);
     const boundedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
@@ -81,6 +88,8 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
     const normalizedPhrase = terms.join(" ");
     for (const id of candidates ?? this.rows.keys()) {
       const group = this.rows.get(id)!;
+      if (filters.category && normalizeQuery(group.category) !== filters.category) continue;
+      if (filters.location && normalizeQuery(group.location) !== filters.location) continue;
       const title = words(group.title).join(" ");
       let score = 0;
       if (normalizedPhrase) {
@@ -93,7 +102,9 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
       }
       hits.push(Object.freeze({ group, score }));
     }
-    hits.sort((a, b) => b.score - a.score || (BigInt(a.group.groupId) < BigInt(b.group.groupId) ? -1 : 1));
+    hits.sort((a, b) => (filters.sort === "title"
+      ? normalizeQuery(a.group.title).localeCompare(normalizeQuery(b.group.title), "fa") : b.score - a.score)
+      || (BigInt(a.group.groupId) < BigInt(b.group.groupId) ? -1 : 1));
     return Object.freeze({ query, total: hits.length, offset: boundedOffset, limit: boundedLimit,
       hits: Object.freeze(hits.slice(boundedOffset, boundedOffset + boundedLimit)) });
   }
