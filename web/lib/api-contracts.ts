@@ -18,6 +18,10 @@ export type ContractResponse<T> = Readonly<{ status: number; body: ApiSuccess<T>
 const meta: ApiMeta = Object.freeze({ source: API_SOURCE, publicOnly: true });
 const MIN_GROUP_ID = -9223372036854775808n;
 
+export const PUBLIC_METADATA_CACHE_CONTROL =
+  "public, max-age=60, s-maxage=300, stale-while-revalidate=600" as const;
+export type JsonResponseOptions = Readonly<{ request?: Request; publicCache?: boolean }>;
+
 function success<T>(data: T): ContractResponse<T> {
   return Object.freeze({ status: 200, body: Object.freeze({ apiVersion: API_VERSION, data, meta }) });
 }
@@ -142,9 +146,37 @@ export function healthContract(catalog: CatalogService): ContractResponse<Health
   }));
 }
 
-export function jsonResponse<T>(result: ContractResponse<T>): Response {
-  return Response.json(result.body, {
-    status: result.status,
-    headers: { "Cache-Control": "no-store" },
+async function responseEtag(serialized: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(serialized));
+  const hex = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+  return `"sha256-${hex}"`;
+}
+
+function ifNoneMatch(header: string | null, etag: string): boolean {
+  if (!header) return false;
+  const comparable = (value: string) => value.trim().replace(/^W\//u, "");
+  const target = comparable(etag);
+  return header.split(",").some(value => value.trim() === "*" || comparable(value) === target);
+}
+
+export async function jsonResponse<T>(
+  result: ContractResponse<T>,
+  options: JsonResponseOptions = {},
+): Promise<Response> {
+  const serialized = JSON.stringify(result.body);
+  const headers = new Headers({
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store",
   });
+
+  if (result.status === 200 && options.publicCache) {
+    const etag = await responseEtag(serialized);
+    headers.set("Cache-Control", PUBLIC_METADATA_CACHE_CONTROL);
+    headers.set("ETag", etag);
+    if (ifNoneMatch(options.request?.headers.get("if-none-match") ?? null, etag)) {
+      return new Response(null, { status: 304, headers });
+    }
+  }
+
+  return new Response(serialized, { status: result.status, headers });
 }

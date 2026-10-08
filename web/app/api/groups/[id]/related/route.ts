@@ -7,5 +7,5 @@ export async function GET(
 ): Promise<Response> {
   const { id } = await context.params;
   const limit = new URL(request.url).searchParams.get("limit");
-  return jsonResponse(relatedContract(localCatalog, id, limit));
+  return jsonResponse(relatedContract(localCatalog, id, limit), { request, publicCache: true });
 }
