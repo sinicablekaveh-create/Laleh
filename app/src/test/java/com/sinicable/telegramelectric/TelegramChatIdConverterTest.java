@@ -25,4 +25,34 @@ public class TelegramChatIdConverterTest {
     public void userDialogIdIsPreserved() {
         assertEquals(42L, TelegramChatIdConverter.toOpenMessageChatId(42L));
     }
+
+    @Test
+    public void channelOffsetBoundaryDistinguishesBasicGroupsFromChannels() {
+        assertEquals(999_999_999_999L,
+                TelegramChatIdConverter.toOpenMessageChatId(-999_999_999_999L));
+        assertEquals(0L,
+                TelegramChatIdConverter.toOpenMessageChatId(-1_000_000_000_000L));
+        assertEquals(1L,
+                TelegramChatIdConverter.toOpenMessageChatId(-1_000_000_000_001L));
+    }
+
+    @Test
+    public void smallestBasicGroupIdBecomesPositive() {
+        assertEquals(1L, TelegramChatIdConverter.toOpenMessageChatId(-1L));
+    }
+
+    @Test
+    public void zeroAndLargePositivePeerIdsArePreserved() {
+        for (long chatId : new long[] {0L, 1L, 1_000_000_000_001L, Long.MAX_VALUE}) {
+            assertEquals(chatId, TelegramChatIdConverter.toOpenMessageChatId(chatId));
+        }
+    }
+
+    @Test
+    public void extremeNegativeDialogIdsRemainWithinLongRangeAfterOffsetRemoval() {
+        assertEquals(9_223_371_036_854_775_808L,
+                TelegramChatIdConverter.toOpenMessageChatId(Long.MIN_VALUE));
+        assertEquals(9_223_371_036_854_775_807L,
+                TelegramChatIdConverter.toOpenMessageChatId(Long.MIN_VALUE + 1));
+    }
 }
