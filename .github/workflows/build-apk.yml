@@ -11,7 +11,7 @@ on:
       - ".github/workflows/build-apk.yml"
       - "web/**"
   push:
-    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "codex/task-023-search-experience-20261008" ]
+    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "codex/task-023-search-experience-20261008", "codex/task-024-api-layer-20261008" ]
     paths:
       - "app/**"
       - "*.gradle.kts"
