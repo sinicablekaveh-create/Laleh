@@ -36,7 +36,11 @@ public final class TelegramAppConnector {
 
     public static boolean openUsername(Context context, String username, String packageName) {
         Intent intent = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("tg://resolve?domain=" + username));
+                new Uri.Builder()
+                        .scheme("tg")
+                        .authority("resolve")
+                        .appendQueryParameter("domain", username)
+                        .build());
 
         if (packageName != null && !packageName.isEmpty()) {
             intent.setPackage(packageName);
@@ -67,7 +71,11 @@ public final class TelegramAppConnector {
         }
 
         Intent intent = new Intent(Intent.ACTION_VIEW,
-                Uri.parse("tg://resolve?phone=" + normalizedPhone));
+                new Uri.Builder()
+                        .scheme("tg")
+                        .authority("resolve")
+                        .appendQueryParameter("phone", normalizedPhone)
+                        .build());
 
         if (packageName != null && !packageName.isEmpty()) {
             intent.setPackage(packageName);

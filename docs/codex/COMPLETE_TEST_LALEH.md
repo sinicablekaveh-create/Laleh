@@ -8,6 +8,7 @@ This document defines the real validation gate for the Laleh Codex execution pac
 
 ```bash
 gradle --no-daemon --stacktrace testDebugUnitTest
+gradle --no-daemon --stacktrace lintDebug
 gradle --no-daemon --stacktrace assembleDebug
 ```
 
@@ -19,6 +20,7 @@ gradle --no-daemon --stacktrace assembleDebug
 ## PASS criteria
 
 - regression tests succeed
+- Android lint succeeds
 - debug APK build succeeds
 - test reports are uploaded
 - APK artifact is uploaded
@@ -32,6 +34,7 @@ Fill from actual GitHub Actions output only:
 - Workflow run:
 - Commit SHA:
 - Test result:
+- Lint result:
 - Build result:
 - Test artifact:
 - APK artifact:

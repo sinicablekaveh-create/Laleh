@@ -10,7 +10,7 @@ on:
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
   push:
-    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain" ]
+    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "fix/**" ]
     paths:
       - "app/**"
       - "*.gradle.kts"
@@ -32,6 +32,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          persist-credentials: false
 
       - name: Set up Java 17
         uses: actions/setup-java@v5

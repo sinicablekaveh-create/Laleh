@@ -19,6 +19,7 @@ This is an execution specification, not proof of completion. Codex must inspect 
 ## Android
 ```bash
 ./gradlew --no-daemon --stacktrace testDebugUnitTest
+./gradlew --no-daemon --stacktrace lintDebug
 ./gradlew --no-daemon --stacktrace assembleDebug
 ```
 If wrapper execution is unavailable, document why before using installed Gradle.

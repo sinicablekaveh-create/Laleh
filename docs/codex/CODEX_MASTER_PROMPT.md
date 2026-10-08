@@ -24,6 +24,7 @@ For every task inspect current code first, reuse existing components, implement 
 Android baseline commands (prefer wrapper when present):
 ```bash
 ./gradlew --no-daemon --stacktrace testDebugUnitTest
+./gradlew --no-daemon --stacktrace lintDebug
 ./gradlew --no-daemon --stacktrace assembleDebug
 ```
 
