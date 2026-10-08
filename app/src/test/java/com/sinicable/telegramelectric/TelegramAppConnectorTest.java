@@ -9,7 +9,6 @@ import android.net.Uri;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.MockedConstruction;
-import org.mockito.MockedStatic;
 
 import java.util.Arrays;
 
@@ -46,7 +45,7 @@ public class TelegramAppConnectorTest {
 
     @Test
     public void invalidPhoneNeverBuildsOrLaunchesAnIntent() {
-        try (MockedStatic<Uri> uris = mockStatic(Uri.class);
+        try (MockedConstruction<Uri.Builder> builders = mockConstruction(Uri.Builder.class);
              MockedConstruction<Intent> intents = mockConstruction(Intent.class)) {
             for (String phone : new String[] {
                     null, "", "  ", "123", "02025550123", "++12025550100",
@@ -57,7 +56,7 @@ public class TelegramAppConnectorTest {
             }
 
             assertTrue(intents.constructed().isEmpty());
-            uris.verifyNoInteractions();
+            assertTrue(builders.constructed().isEmpty());
             verifyNoInteractions(context, packageManager);
         }
     }
@@ -65,14 +64,15 @@ public class TelegramAppConnectorTest {
     @Test
     public void normalizedPhoneWithNoActivityHandlerDoesNotLaunch() {
         Uri target = mock(Uri.class);
-        try (MockedStatic<Uri> uris = mockStatic(Uri.class);
+        try (MockedConstruction<Uri.Builder> builders = mockResolveBuilder("phone", "+989123456789", target);
              MockedConstruction<Intent> intents = mockConstruction(Intent.class,
                      (intent, construction) -> assertEquals(
                              Arrays.asList(Intent.ACTION_VIEW, target), construction.arguments()))) {
-            uris.when(() -> Uri.parse("tg://resolve?phone=+989123456789")).thenReturn(target);
 
             assertFalse(TelegramAppConnector.openPhone(context, "0912 345 6789", "org.telegram.messenger"));
 
+            assertEquals(1, builders.constructed().size());
+            verifyResolveBuilder(builders.constructed().get(0), "phone", "+989123456789");
             assertEquals(1, intents.constructed().size());
             Intent intent = intents.constructed().get(0);
             verify(intent).setPackage("org.telegram.messenger");
@@ -84,18 +84,18 @@ public class TelegramAppConnectorTest {
     private void assertPhoneLaunch(String input, String normalized, String selectedPackage) {
         Uri target = mock(Uri.class);
         ComponentName activity = mock(ComponentName.class);
-        try (MockedStatic<Uri> uris = mockStatic(Uri.class);
+        try (MockedConstruction<Uri.Builder> builders = mockResolveBuilder("phone", normalized, target);
              MockedConstruction<Intent> intents = mockConstruction(Intent.class, (intent, construction) -> {
                  assertEquals(Arrays.asList(Intent.ACTION_VIEW, target), construction.arguments());
                  when(intent.resolveActivity(packageManager)).thenReturn(activity);
              })) {
-            uris.when(() -> Uri.parse("tg://resolve?phone=" + normalized)).thenReturn(target);
 
             assertTrue(TelegramAppConnector.openPhone(context, input, selectedPackage));
 
             assertEquals(1, intents.constructed().size());
             Intent intent = intents.constructed().get(0);
-            uris.verify(() -> Uri.parse("tg://resolve?phone=" + normalized));
+            assertEquals(1, builders.constructed().size());
+            verifyResolveBuilder(builders.constructed().get(0), "phone", normalized);
             if (selectedPackage == null || selectedPackage.isEmpty()) {
                 verify(intent, never()).setPackage(any());
             } else {
@@ -104,5 +104,41 @@ public class TelegramAppConnectorTest {
             verify(intent).resolveActivity(packageManager);
             verify(context).startActivity(intent);
         }
+    }
+
+    @Test
+    public void usernameIsPassedAsOneEncodedQueryParameter() {
+        String username = "example&phone=+989123456789";
+        Uri target = mock(Uri.class);
+        ComponentName activity = mock(ComponentName.class);
+        try (MockedConstruction<Uri.Builder> builders = mockResolveBuilder("domain", username, target);
+             MockedConstruction<Intent> intents = mockConstruction(Intent.class, (intent, construction) -> {
+                 assertEquals(Arrays.asList(Intent.ACTION_VIEW, target), construction.arguments());
+                 when(intent.resolveActivity(packageManager)).thenReturn(activity);
+             })) {
+            assertTrue(TelegramAppConnector.openUsername(context, username, "org.telegram.messenger"));
+            assertEquals(1, builders.constructed().size());
+            verifyResolveBuilder(builders.constructed().get(0), "domain", username);
+            Intent intent = intents.constructed().get(0);
+            verify(intent).setPackage("org.telegram.messenger");
+            verify(intent).resolveActivity(packageManager);
+            verify(context).startActivity(intent);
+        }
+    }
+
+    private MockedConstruction<Uri.Builder> mockResolveBuilder(String parameter, String value, Uri target) {
+        return mockConstruction(Uri.Builder.class, (builder, construction) -> {
+            when(builder.scheme("tg")).thenReturn(builder);
+            when(builder.authority("resolve")).thenReturn(builder);
+            when(builder.appendQueryParameter(parameter, value)).thenReturn(builder);
+            when(builder.build()).thenReturn(target);
+        });
+    }
+
+    private void verifyResolveBuilder(Uri.Builder builder, String parameter, String value) {
+        verify(builder).scheme("tg");
+        verify(builder).authority("resolve");
+        verify(builder).appendQueryParameter(parameter, value);
+        verify(builder).build();
     }
 }
