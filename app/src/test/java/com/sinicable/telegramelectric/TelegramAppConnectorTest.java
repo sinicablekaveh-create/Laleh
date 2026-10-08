@@ -1,5 +1,6 @@
 package com.sinicable.telegramelectric;
 
+import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +27,16 @@ public class TelegramAppConnectorTest {
         context = mock(Context.class);
         packageManager = mock(PackageManager.class);
         when(context.getPackageManager()).thenReturn(packageManager);
+    }
+
+    @Test
+    public void phoneLaunchPropagatesPermissionDenial() {
+        assertPhoneLaunchFailure(new SecurityException("Launch denied"));
+    }
+
+    @Test
+    public void phoneLaunchPropagatesHandlerDisappearingAfterResolution() {
+        assertPhoneLaunchFailure(mock(ActivityNotFoundException.class));
     }
 
     @Test
@@ -78,6 +89,29 @@ public class TelegramAppConnectorTest {
             verify(intent).setPackage("org.telegram.messenger");
             verify(intent).resolveActivity(packageManager);
             verify(context, never()).startActivity(any(Intent.class));
+        }
+    }
+
+    private void assertPhoneLaunchFailure(RuntimeException failure) {
+        Uri target = mock(Uri.class);
+        ComponentName activity = mock(ComponentName.class);
+        try (MockedStatic<Uri> uris = mockStatic(Uri.class);
+             MockedConstruction<Intent> intents = mockConstruction(Intent.class, (intent, construction) -> {
+                 assertEquals(Arrays.asList(Intent.ACTION_VIEW, target), construction.arguments());
+                 when(intent.resolveActivity(packageManager)).thenReturn(activity);
+                 doThrow(failure).when(context).startActivity(intent);
+             })) {
+            uris.when(() -> Uri.parse("tg://resolve?phone=+12025550100")).thenReturn(target);
+
+            RuntimeException thrown = assertThrows(failure.getClass(), () ->
+                    TelegramAppConnector.openPhone(context, "0012025550100", "org.telegram.messenger"));
+
+            assertSame(failure, thrown);
+            assertEquals(1, intents.constructed().size());
+            Intent intent = intents.constructed().get(0);
+            verify(intent).setPackage("org.telegram.messenger");
+            verify(intent).resolveActivity(packageManager);
+            verify(context).startActivity(intent);
         }
     }
 

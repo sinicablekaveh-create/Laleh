@@ -14,6 +14,19 @@ import static org.junit.Assert.assertTrue;
 public class ChatPhoneIndexTest {
 
     @Test
+    public void extractionKeepsDomesticAndInternationalFormsDistinct() {
+        ChatPhoneIndex index = new ChatPhoneIndex();
+
+        assertTrue(index.addMessageText("Domestic: 0912-345-6789; international: +98 912 345 6789"));
+        assertFalse(index.addMessageText("Domestic again: 09123456789; international again: +989123456789"));
+
+        // Indexing removes formatting but must not infer a country code.
+        assertEquals(Arrays.asList("09123456789", "+989123456789"),
+                new ArrayList<>(index.getPhones()));
+        assertEquals(2, index.size());
+    }
+
+    @Test
     public void addMessageTextAddsNormalizedUniqueNumbersInDiscoveryOrder() {
         ChatPhoneIndex index = new ChatPhoneIndex();
 
