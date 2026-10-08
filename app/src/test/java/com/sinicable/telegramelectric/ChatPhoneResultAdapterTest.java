@@ -33,6 +33,56 @@ public class ChatPhoneResultAdapterTest {
     }
 
     @Test
+    public void repeatedSourceObjectsRemainSeparateRowsWithinAndAcrossModels() {
+        ChatPhoneSourceLocator item = source("+12025550100", 11L, "09:00");
+
+        adapter.update(Arrays.asList(model(item, item), model(item)));
+
+        assertEquals(3, adapter.getCount());
+        for (int position = 0; position < 3; position++) {
+            assertSame(item, adapter.getItem(position));
+        }
+        verify(adapter).notifyDataSetChanged();
+    }
+
+    @Test
+    public void boundActionsKeepOriginalSourceAfterRowsAreReplacedAndCleared() {
+        ChatPhoneSourceLocator original = source("+12025550100", 11L, "09:00");
+        adapter.update(Collections.singletonList(model(original)));
+        ChatPhoneResultCardView card = mock(ChatPhoneResultCardView.class);
+        adapter.getView(0, card, null);
+        ArgumentCaptor<ChatPhoneResultCardView.ActionListener> listener =
+                ArgumentCaptor.forClass(ChatPhoneResultCardView.ActionListener.class);
+        verify(card).bind(eq(original.getPhone()), eq(original.getChatTitle()),
+                eq(original.getMessageTime()), listener.capture());
+
+        try (MockedStatic<TelegramMessageSourceOpener> messages = mockStatic(TelegramMessageSourceOpener.class);
+             MockedStatic<TelegramResultOpener> phones = mockStatic(TelegramResultOpener.class)) {
+            adapter.update(Collections.singletonList(model(source("+12025550101", 22L, "10:00"))));
+            listener.getValue().onOpenMessage();
+            adapter.update(null);
+            listener.getValue().onOpenTelegram();
+
+            messages.verify(() -> TelegramMessageSourceOpener.openMessage(
+                    context, original.getChatId(), original.getMessageId()));
+            phones.verify(() -> TelegramResultOpener.openPhone(context, original.getPhone()));
+            messages.verifyNoMoreInteractions();
+            phones.verifyNoMoreInteractions();
+        }
+    }
+
+    @Test
+    public void removedRowCannotRebindARecycledCard() {
+        adapter.update(Collections.singletonList(model(source("+12025550100", 11L, "09:00"))));
+        adapter.update(null);
+        ChatPhoneResultCardView card = mock(ChatPhoneResultCardView.class);
+
+        assertThrows(IndexOutOfBoundsException.class, () -> adapter.getView(0, card, null));
+
+        verifyNoInteractions(card);
+    }
+
+    @Test
     public void updateFlattensModelsInOrderAndSkipsNullAndEmptyModels() {
         ChatPhoneSourceLocator first = source("+12025550100", 11L, "09:00");
         ChatPhoneSourceLocator second = source("+12025550101", 22L, "10:00");

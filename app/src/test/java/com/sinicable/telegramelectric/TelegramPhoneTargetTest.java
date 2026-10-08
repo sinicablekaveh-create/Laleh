@@ -3,8 +3,35 @@ package com.sinicable.telegramelectric;
 import org.junit.Test;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 
 public class TelegramPhoneTargetTest {
+    @Test
+    public void explicitInternationalPrefixPreventsDomesticCountryCodeInference() {
+        assertEquals("+989123456789", TelegramPhoneTarget.normalize("9123456789"));
+        assertEquals("+9123456789", TelegramPhoneTarget.normalize("+9123456789"));
+        assertEquals("+9123456789", TelegramPhoneTarget.normalize("009123456789"));
+        assertEquals("", TelegramPhoneTarget.normalize("+09123456789"));
+    }
+
+    @Test
+    public void internationalAccessPrefixDoesNotCountTowardDigitLimit() {
+        assertEquals("+1234567", TelegramPhoneTarget.normalize("001234567"));
+        assertEquals("+123456789012345", TelegramPhoneTarget.normalize("00123456789012345"));
+        assertEquals("", TelegramPhoneTarget.normalize("00123456"));
+        assertEquals("", TelegramPhoneTarget.normalize("001234567890123456"));
+    }
+
+    @Test
+    public void normalizedTargetsCanBeNormalizedAgainWithoutChangingCountryCode() {
+        for (String input : new String[] {"09123456789", "0012025550100", "+9123456789"}) {
+            String target = TelegramPhoneTarget.normalize(input);
+
+            assertFalse(input, target.isEmpty());
+            assertEquals(input, target, TelegramPhoneTarget.normalize(target));
+        }
+    }
+
     @Test
     public void domesticIranianMobileIsNormalizedForTelegramDeepLink() {
         assertEquals(

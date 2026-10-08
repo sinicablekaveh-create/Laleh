@@ -1,5 +1,6 @@
 package com.sinicable.telegramelectric;
 
+import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
@@ -26,6 +27,16 @@ public class TelegramMessageSourceOpenerTest {
         context = mock(Context.class);
         packageManager = mock(PackageManager.class);
         when(context.getPackageManager()).thenReturn(packageManager);
+    }
+
+    @Test
+    public void messageLaunchPropagatesPermissionDenial() {
+        assertMessageLaunchFailure(new SecurityException("Launch denied"));
+    }
+
+    @Test
+    public void messageLaunchPropagatesHandlerDisappearingAfterResolution() {
+        assertMessageLaunchFailure(mock(ActivityNotFoundException.class));
     }
 
     @Test
@@ -59,6 +70,29 @@ public class TelegramMessageSourceOpenerTest {
             verify(intent).setData(target);
             verify(intent).resolveActivity(packageManager);
             verify(context, never()).startActivity(any(Intent.class));
+        }
+    }
+
+    private void assertMessageLaunchFailure(RuntimeException failure) {
+        Uri target = mock(Uri.class);
+        ComponentName activity = mock(ComponentName.class);
+        try (MockedStatic<Uri> uris = mockStatic(Uri.class);
+             MockedConstruction<Intent> intents = mockConstruction(Intent.class, (intent, construction) -> {
+                 assertEquals(Collections.singletonList(Intent.ACTION_VIEW), construction.arguments());
+                 when(intent.resolveActivity(packageManager)).thenReturn(activity);
+                 doThrow(failure).when(context).startActivity(intent);
+             })) {
+            uris.when(() -> Uri.parse("tg://openmessage?chat_id=42&message_id=99")).thenReturn(target);
+
+            RuntimeException thrown = assertThrows(failure.getClass(), () ->
+                    TelegramMessageSourceOpener.openMessage(context, -1000000000042L, 99L));
+
+            assertSame(failure, thrown);
+            assertEquals(1, intents.constructed().size());
+            Intent intent = intents.constructed().get(0);
+            verify(intent).setData(target);
+            verify(intent).resolveActivity(packageManager);
+            verify(context).startActivity(intent);
         }
     }
 
