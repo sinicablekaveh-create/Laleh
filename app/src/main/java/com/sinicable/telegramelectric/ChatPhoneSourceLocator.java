@@ -11,10 +11,16 @@ public class ChatPhoneSourceLocator {
     private final String chatTitle;
     private final String messageTime;
 
+    /** Stores the source values unchanged, with an empty message time for display. */
     public ChatPhoneSourceLocator(String phone, long chatId, long messageId, String chatTitle) {
         this(phone, chatId, messageId, chatTitle, "");
     }
 
+    /**
+     * Stores source values without validating or normalizing the phone or identifiers.
+     *
+     * @param messageTime text displayed verbatim on the result card; null becomes an empty string
+     */
     public ChatPhoneSourceLocator(
             String phone,
             long chatId,
@@ -45,6 +51,7 @@ public class ChatPhoneSourceLocator {
         return chatTitle;
     }
 
+    /** Returns the supplied display text, or an empty string when no message time was supplied. */
     public String getMessageTime() {
         return messageTime;
     }

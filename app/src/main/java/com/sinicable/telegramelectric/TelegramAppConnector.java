@@ -50,6 +50,16 @@ public final class TelegramAppConnector {
         return true;
     }
 
+    /**
+     * Normalizes the phone via {@link TelegramPhoneTarget#normalize(String)} and launches
+     * its Telegram link. Activity launch failures propagate to the caller.
+     *
+     * @param context context suitable for starting an activity without a new-task flag
+     * @param packageName target app package, or null or empty to allow any matching handler
+     * @return true after starting the activity; false for a rejected phone or no matching activity
+     * @throws android.content.ActivityNotFoundException if the resolved activity cannot be started
+     * @throws SecurityException if permission to launch the activity is denied
+     */
     public static boolean openPhone(Context context, String phone, String packageName) {
         String normalizedPhone = TelegramPhoneTarget.normalize(phone);
         if (normalizedPhone.isEmpty()) {

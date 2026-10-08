@@ -11,6 +11,13 @@ import java.util.Set;
 public final class ChatPhoneIndex {
     private final Set<String> phones = new LinkedHashSet<>();
 
+    /**
+     * Adds extracted phone numbers in discovery order, ignoring duplicates already indexed.
+     * Formatting is removed by {@link ChatPhoneNumberExtractor}; country codes are not inferred.
+     *
+     * @return true if at least one new number was added; false for null or blank text,
+     *         no matches, or only previously indexed numbers
+     */
     public synchronized boolean addMessageText(String text) {
         if (text == null || text.trim().isEmpty()) {
             return false;
