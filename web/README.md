@@ -10,6 +10,7 @@ npm ci
 npm test
 npm run typecheck
 npm run build
+npm run measure:build
 ```
 
 Use `npm run dev` for local development or `npm start` after a production build.
@@ -37,8 +38,19 @@ Every response has `apiVersion: 1` and metadata declaring
 `backend: "disabled"` truthfully. Unknown groups return 404 and malformed identifiers
 return 400. Search paging and related-result limits are bounded server-side.
 
-Validation evidence for implementation commit `68b331c270d619752ac3a17e9f7abc3c84b19b85`:
-GitHub Actions run `37769162382` passed 23 web tests, typecheck, production build,
-Android unit tests, Android lint and debug APK assembly/upload. The validated APK
-artifact is `telegram-electric-debug` ID `11545873961`. This evidence does not
-claim browser visual, on-device or live Telegram-server validation.
+TASK-025 adds conditional HTTP caching only where it is safe. Successful approved
+public group/category metadata may use
+`public, max-age=60, s-maxage=300, stale-while-revalidate=600` with SHA-256 ETags
+and `304 Not Modified`. Search requests remain `no-store` because their query terms
+are user-provided; health/status and error responses also remain `no-store`.
+Result/category lists prefetch at most four internal detail routes, while the App
+Router loading state provides an accessible no-JavaScript progress surface with
+reduced-motion support.
+
+CI restores `web/.next/cache` and `npm run measure:build` reports production
+JavaScript chunk counts plus raw/gzip size. On TASK-025 implementation run
+`37772949785`, 26 web tests, typecheck and production build passed; compile was
+3.6s versus the prior TASK-024 4.9s baseline, and the build measured 27 JS chunks,
+932301 raw bytes, 288559 gzip bytes, largest chunk 242379 bytes. Android regression
+tests, lint and debug APK assembly also passed even though TASK-025 changes no
+Android/TDLib source. APK artifact `telegram-electric-debug`: `11548880142`.
