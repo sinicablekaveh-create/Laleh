@@ -11,10 +11,17 @@ public class ChatPhoneSourceLocator {
     private final String chatTitle;
     private final String messageTime;
 
+    /** Creates a source reference with an empty message-time label. */
     public ChatPhoneSourceLocator(String phone, long chatId, long messageId, String chatTitle) {
         this(phone, chatId, messageId, chatTitle, "");
     }
 
+    /**
+     * Stores a phone and its source references without validating or converting them.
+     *
+     * @param messageTime display text used as supplied, with no date parsing or formatting;
+     *                    null is stored as an empty string
+     */
     public ChatPhoneSourceLocator(
             String phone,
             long chatId,
@@ -45,6 +52,7 @@ public class ChatPhoneSourceLocator {
         return chatTitle;
     }
 
+    /** Returns the supplied message-time label, or an empty string if absent or null. */
     public String getMessageTime() {
         return messageTime;
     }

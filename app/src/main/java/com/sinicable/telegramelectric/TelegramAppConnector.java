@@ -50,6 +50,18 @@ public final class TelegramAppConnector {
         return true;
     }
 
+    /**
+     * Normalizes a phone number and launches its Telegram deep link.
+     *
+     * @param context context capable of starting an activity without a new-task flag
+     * @param phone number accepted by {@link PhoneNumberNormalizer#normalize(String)}
+     * @param packageName app to target, or null or empty to allow any matching handler
+     * @return true after starting the activity; false if the number is rejected or no
+     *         matching activity resolves. This does not confirm a Telegram account exists.
+     * @throws android.content.ActivityNotFoundException if the resolved activity can no
+     *         longer be launched
+     * @throws SecurityException if the activity cannot be launched with the caller's permissions
+     */
     public static boolean openPhone(Context context, String phone, String packageName) {
         String normalizedPhone = TelegramPhoneTarget.normalize(phone);
         if (normalizedPhone.isEmpty()) {

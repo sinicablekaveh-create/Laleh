@@ -20,6 +20,11 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
         this.context = context;
     }
 
+    /**
+     * Replaces the displayed items with each model's results in list order, preserving
+     * duplicates, then notifies observers. Null models are skipped; a null list clears
+     * the displayed items.
+     */
     public void update(List<ChatPhoneResultViewModel> results) {
         items.clear();
         if (results != null) {
@@ -47,6 +52,13 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
         return position;
     }
 
+    /**
+     * Returns a card showing the selected phone, source chat, and message time, with
+     * actions to open the source message or the phone in the selected Telegram app.
+     * Reuses {@code convertView} when it is a {@link ChatPhoneResultCardView}.
+     *
+     * @throws IndexOutOfBoundsException if position is outside the displayed items
+     */
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
         ChatPhoneResultCardView card;
@@ -61,6 +73,7 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
                 item.getChatTitle(),
                 item.getMessageTime(),
                 new ChatPhoneResultCardView.ActionListener() {
+                    /** Attempts to open this result's source message; launch errors propagate. */
                     @Override
                     public void onOpenMessage() {
                         TelegramMessageSourceOpener.openMessage(
@@ -70,6 +83,7 @@ public class ChatPhoneResultAdapter extends BaseAdapter {
                         );
                     }
 
+                    /** Attempts to open this phone in the selected app; launch errors propagate. */
                     @Override
                     public void onOpenTelegram() {
                         TelegramResultOpener.openPhone(context, item.getPhone());
