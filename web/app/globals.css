@@ -17,6 +17,11 @@ input, button { font: inherit; border-radius: 10px; padding: 14px 20px; min-heig
 input { width: 100%; min-width: 0; color: var(--ink); border: 1px solid #9cad9e; background: white; }
 button { border: 0; color: white; background: var(--ink); cursor: pointer; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 4px; }
+.filters { margin: 20px 0 0; padding: 16px; border: 1px solid var(--line); border-radius: 10px; display: flex; flex-wrap: wrap; gap: 16px; }
+.filters > div { flex: 1 1 180px; min-width: 0; }
+select { width: 100%; min-height: 48px; font: inherit; color: var(--ink); background: white; padding: 8px; border: 1px solid #9cad9e; border-radius: 8px; }
+.skip-link { position: absolute; top: 8px; transform: translateY(-160%); padding: 8px; background: white; z-index: 1; }
+.skip-link:focus { transform: none; }
 .empty { padding: 36px; border: 1px solid var(--line); border-radius: 16px; background: #fffdf7; }
 .empty > span { font-size: 30px; color: var(--accent); }
 h2 { font-size: 19px; }
@@ -27,6 +32,6 @@ h2 { font-size: 19px; }
 .group { overflow-wrap: anywhere; }
 ul.results { list-style: none; padding: 0; }
 dt { font-weight: bold; } dd { margin-inline-start: 0; margin-bottom: 16px; }
-.pages { display: flex; gap: 32px; padding: 20px 0; }
+.pages { display: flex; flex-wrap: wrap; gap: 24px; padding: 20px 0; }
 footer { margin-top: 60px; padding: 28px 0 40px; border-top: 1px solid var(--line); max-width: 740px; }
 @media (max-width: 600px) { main { padding: 0 20px; } header { min-height: 90px; } header > a:last-child { font-size: 12px; } .hero { padding-top: 40px; } .search { flex-direction: column; } .empty { padding: 24px; } }
