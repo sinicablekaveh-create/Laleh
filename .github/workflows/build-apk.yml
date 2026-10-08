@@ -11,7 +11,7 @@ on:
       - ".github/workflows/build-apk.yml"
       - "web/**"
   push:
-    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "codex/task-023-search-experience-20261008", "codex/task-024-api-layer-20261008" ]
+    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "codex/task-023-search-experience-20261008", "codex/task-024-api-layer-20261008", "codex/task-025-web-optimization-20261008" ]
     paths:
       - "app/**"
       - "*.gradle.kts"
@@ -42,12 +42,20 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Restore Next.js build cache
+        uses: actions/cache@v5
+        with:
+          path: web/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ hashFiles('web/package-lock.json') }}-${{ hashFiles('web/**/*.ts', 'web/**/*.tsx', 'web/**/*.css', 'web/data/**/*.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ hashFiles('web/package-lock.json') }}-
       - run: npm ci
       - run: npm test
       - run: npm run typecheck
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: '1'
+      - run: npm run measure:build
 
   build:
     runs-on: ubuntu-latest
