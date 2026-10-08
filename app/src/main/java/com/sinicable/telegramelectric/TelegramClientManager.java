@@ -8,6 +8,7 @@ import org.drinkless.tdlib.Client;
 import org.drinkless.tdlib.TdApi;
 import org.json.JSONArray;
 import org.json.JSONObject;
+import com.sinicable.telegramelectric.groupsearch.GroupRanker;
 
 import java.io.File;
 import java.lang.reflect.Constructor;
@@ -15,6 +16,7 @@ import java.lang.reflect.Array;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,6 +78,10 @@ public final class TelegramClientManager {
     private volatile ProxyLinkParser.ProxyConfig pendingProxy;
     private final Map<Long, GroupInfo> targetGroups = new ConcurrentHashMap<>();
     private final Map<Long, GroupInfo> foundGroups = new ConcurrentHashMap<>();
+    private final Map<String, GroupSearchResults> publicSearches = new java.util.HashMap<>();
+    private final SearchMetrics searchMetrics = new SearchMetrics();
+    private static final int MAX_PUBLIC_SEARCHES = 16;
+    private static final int MAX_SEARCH_FOLLOWERS = 32;
     private final Map<Long, ContactInfo> observedUsers = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.User> userCache = new ConcurrentHashMap<>();
     private final Map<Long, TdApi.Chat> chatCache = new ConcurrentHashMap<>();
@@ -556,12 +562,15 @@ public final class TelegramClientManager {
     /** Completes every request once, including timeouts, transport failures and changed sessions. */
     private void sendSearchRequest(Client local, TdApi.Function request, String operation,
                                    Client.ResultHandler handler) {
+        long startedAt = System.nanoTime();
+        searchMetrics.requestStarted();
         long requestId = NEXT_REQUEST_ID.incrementAndGet();
         AtomicBoolean completed = new AtomicBoolean();
         SEARCH_LOG.info("request=" + requestId + " operation=" + operation
                 + " auth=" + currentStep + " connected=" + connectionReady);
         ScheduledFuture<?> deadline = REQUEST_TIMER.schedule(() -> {
             if (!completed.compareAndSet(false, true)) return;
+            searchMetrics.requestCompleted(false, true, System.nanoTime() - startedAt);
             SEARCH_LOG.warning("request=" + requestId + " operation=" + operation + " timeout");
             handler.onResult(new TdApi.Error(408, "زمان پاسخ تلگرام تمام شد؛ اتصال را بررسی و دوباره تلاش کن."));
         }, REQUEST_TIMEOUT_SECONDS, TimeUnit.SECONDS);
@@ -580,6 +589,9 @@ public final class TelegramClientManager {
                 SEARCH_LOG.info("request=" + requestId + " operation=" + operation + " response="
                         + (safeResult == null ? "null" : safeResult.getClass().getSimpleName()));
             }
+            searchMetrics.requestCompleted(!(safeResult instanceof TdApi.Error) && safeResult != null,
+                    safeResult instanceof TdApi.Error && ((TdApi.Error) safeResult).code == 408,
+                    System.nanoTime() - startedAt);
             handler.onResult(safeResult);
         };
         if (local != client || currentStep != AuthStep.READY) {
@@ -614,6 +626,8 @@ public final class TelegramClientManager {
         GroupInfo target = targetGroups.get(chatId);
         return target != null ? target : foundGroups.get(chatId);
     }
+
+    public SearchMetrics.Snapshot getSearchMetrics() { return searchMetrics.snapshot(); }
 
     public void sendPhotoToChat(
             long chatId,
@@ -757,7 +771,7 @@ public final class TelegramClientManager {
 
     public void discoverPublicGroupsForReview(String query, DiscoveryCallback callback) {
         Client local = client;
-        String clean = query == null ? "" : query.trim();
+        String clean = SearchQuery.parse(query).normalized;
         if (local == null || currentStep != AuthStep.READY) {
             discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
@@ -798,14 +812,38 @@ public final class TelegramClientManager {
             return;
         }
 
-        GroupSearchResults collected = startGroupSearchOperation(callback);
+        GroupSearchResults collected;
+        boolean rejected = false;
+        synchronized (publicSearches) {
+            GroupSearchResults existing = publicSearches.get(clean);
+            if (existing != null && existing.owner == local && !existing.finished.get()) {
+                if (existing.followers.size() >= MAX_SEARCH_FOLLOWERS) rejected = true;
+                else {
+                    if (callback != null) existing.followers.add(callback);
+                    searchMetrics.coalesced();
+                    return;
+                }
+            }
+            if (rejected || publicSearches.size() >= MAX_PUBLIC_SEARCHES) {
+                collected = null;
+            } else {
+                collected = startGroupSearchOperation(callback, clean);
+                collected.owner = local;
+                publicSearches.put(clean, collected);
+            }
+        }
+        if (collected == null) {
+            discoveryResult(callback, false, 0, java.util.Collections.emptyList(),
+                    "Telegram 429: درخواست‌های جستجوی هم‌زمان زیاد است؛ کمی بعد تلاش کن.");
+            return;
+        }
         sendSearchRequest(local, request, "public_group_search",
                 result -> processGroupSearchResult(local, result, true, collected, callback));
     }
 
     public void searchKnownGroups(String query, DiscoveryCallback callback) {
         Client local = client;
-        String clean = query == null ? "" : query.trim();
+        String clean = SearchQuery.parse(query).normalized;
         if (local == null || currentStep != AuthStep.READY) {
             discoveryResult(callback, false, 0, java.util.Collections.emptyList(), "تلگرام آماده جستجو نیست.");
             return;
@@ -815,37 +853,67 @@ public final class TelegramClientManager {
             return;
         }
 
-        GroupSearchResults collected = startGroupSearchOperation(callback);
+        GroupSearchResults collected = startGroupSearchOperation(callback, clean);
         sendSearchRequest(local, new TdApi.SearchChats(clean, null, 50), "known_group_search",
                 result -> processGroupSearchResult(local, result, false, collected, callback));
     }
 
     private static final class GroupSearchResults {
-        final List<Long> ids = new ArrayList<>();
+        // Keep discovery output stable while protecting against a repeated TDLib callback or
+        // a chat returned by more than one recovery path.
+        final java.util.Set<Long> ids = new LinkedHashSet<>();
         final AtomicBoolean finished = new AtomicBoolean();
         ScheduledFuture<?> deadline;
+        String query = "";
+        Client owner;
+        final List<DiscoveryCallback> followers = new ArrayList<>();
         int newItems;
     }
 
-    private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback) {
+    private GroupSearchResults startGroupSearchOperation(DiscoveryCallback callback, String query) {
         GroupSearchResults collected = new GroupSearchResults();
+        collected.query = query;
         collected.deadline = REQUEST_TIMER.schedule(() -> finishGroupSearch(collected, callback,
                 false, "Telegram 408: زمان دریافت کامل نتایج تمام شد؛ دوباره تلاش کن."),
                 60, TimeUnit.SECONDS);
         return collected;
     }
 
-    private static void finishGroupSearch(GroupSearchResults collected, DiscoveryCallback callback,
+    private void finishGroupSearch(GroupSearchResults collected, DiscoveryCallback callback,
                                            boolean success, String message) {
         List<Long> ids;
         int newItems;
+        List<DiscoveryCallback> callbacks;
         synchronized (collected) {
             if (!collected.finished.compareAndSet(false, true)) return;
             collected.deadline.cancel(false);
             ids = new ArrayList<>(collected.ids);
             newItems = collected.newItems;
         }
-        discoveryResult(callback, success, newItems, ids, message);
+        synchronized (publicSearches) {
+            callbacks = new ArrayList<>(collected.followers);
+            publicSearches.remove(collected.query, collected);
+        }
+        if (callback != null) callbacks.add(0, callback);
+        GroupRanker ranker = new GroupRanker();
+        Map<Long, Integer> scores = new java.util.HashMap<>();
+        for (Long id : ids) {
+            GroupInfo group = getGroup(id);
+            String username = group != null && group.link.startsWith("https://t.me/")
+                    ? group.link.substring("https://t.me/".length()) : "";
+            scores.put(id, group == null ? 0 : ranker.score(group.title, username, collected.query));
+        }
+        // Equal scores must remain deterministic even when cache recovery order changes.
+        ids.sort(Comparator.comparingInt((Long id) -> scores.get(id)).reversed()
+                .thenComparingLong(Long::longValue));
+        searchMetrics.discovered(ids.size());
+        for (DiscoveryCallback receiver : callbacks) {
+            try {
+                discoveryResult(receiver, success, newItems, ids, message);
+            } catch (RuntimeException error) {
+                SEARCH_LOG.warning("Discovery callback failed: " + error.getClass().getSimpleName());
+            }
+        }
     }
 
     private void processGroupSearchResult(Client local, TdApi.Object result, boolean publicSearch,
@@ -869,7 +937,10 @@ public final class TelegramClientManager {
                 if (!seen.add(id)) continue;
                 TdApi.Chat chat = chatCache.get(id);
                 if (chat == null) missing.add(id);
-                else collectGroupSearchResult(chat, publicSearch, collected);
+                else {
+                    searchMetrics.cacheHit();
+                    collectGroupSearchResult(chat, publicSearch, collected);
+                }
             }
         }
         recoverMissingSearchChat(local, missing, 0, publicSearch, collected, callback);
@@ -880,7 +951,7 @@ public final class TelegramClientManager {
         if (!isGroupChat(chat)) return;
         synchronized (collected) {
             if (collected.finished.get()) return;
-            collected.ids.add(chat.id);
+            if (!collected.ids.add(chat.id)) return;
             if (publicSearch) {
                 boolean isNew = !foundGroups.containsKey(chat.id);
                 captureSearchResult(chat);
@@ -905,7 +976,17 @@ public final class TelegramClientManager {
         }
         synchronized (collected) {
             if (collected.finished.get()) return;
-            sendSearchRequest(local, new TdApi.GetChat(missing.get(index)), "search_chat_cache_recovery", result -> {
+            long expectedId = missing.get(index);
+            // TDLib updates can populate the cache while earlier chats are being recovered.
+            TdApi.Chat cached = chatCache.get(expectedId);
+            if (cached != null) {
+                searchMetrics.cacheHit();
+                collectGroupSearchResult(cached, publicSearch, collected);
+                runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
+                        publicSearch, collected, callback));
+                return;
+            }
+            sendSearchRequest(local, new TdApi.GetChat(expectedId), "search_chat_cache_recovery", result -> {
                 if (collected.finished.get()) return;
                 if (!(result instanceof TdApi.Chat)) {
                     String message = result instanceof TdApi.Error
@@ -915,6 +996,11 @@ public final class TelegramClientManager {
                     return;
                 }
                 TdApi.Chat chat = (TdApi.Chat) result;
+                if (chat.id != expectedId) {
+                    finishGroupSearch(collected, callback, false,
+                            "دریافت نتایج جستجو کامل نشد: شناسهٔ پاسخ گروه معتبر نبود.");
+                    return;
+                }
                 chatCache.put(chat.id, chat);
                 collectGroupSearchResult(chat, publicSearch, collected);
                 runtimeExecutor.execute(() -> recoverMissingSearchChat(local, missing, index + 1,
@@ -1555,16 +1641,10 @@ public final class TelegramClientManager {
     }
 
     private static boolean isGroupChat(TdApi.Chat chat) {
-        if (chat == null) return false;
+        if (chat == null || chat.id == 0) return false;
         if (chat.type instanceof TdApi.ChatTypeBasicGroup) return true;
         if (chat.type instanceof TdApi.ChatTypeSupergroup) {
-            try {
-                Field field = chat.type.getClass().getField("isChannel");
-                Object value = field.get(chat.type);
-                return !(value instanceof Boolean) || !((Boolean) value);
-            } catch (Throwable ignored) {
-                return true;
-            }
+            return !((TdApi.ChatTypeSupergroup) chat.type).isChannel;
         }
         return false;
     }

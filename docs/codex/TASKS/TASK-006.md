@@ -29,13 +29,12 @@ feat(ranking-engine): complete TASK-006 ranking engine
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: existing GroupRanker, WordBank normalization API, TelegramClientManager callback ranking, GroupRankerTest and TelegramPhoneSearchTest. Exact/title/username/query-token relevance determines order. Topic/city tokens are scored from the query. Equal scores preserve discovery order; member count is excluded.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 115 tests; no failures/errors/skips; lint and APK build passed.
+- Commit SHA: `94bd7c3` (`feat(ranking-engine): rank discovery by normalized relevance`).
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: ranking weights are deterministic heuristics, not tuned on a live relevance dataset. Device/live Telegram validation unperformed.
 
 ## Next
 TASK-007

@@ -335,6 +335,33 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void groupSearchCollectionReportsARepeatedGroupOnlyOnce() throws Exception {
+        Class<?> resultsClass = Class.forName(
+                "com.sinicable.telegramelectric.TelegramClientManager$GroupSearchResults");
+        Method start = TelegramClientManager.class.getDeclaredMethod(
+                "startGroupSearchOperation", TelegramClientManager.DiscoveryCallback.class, String.class);
+        start.setAccessible(true);
+        Object collected = start.invoke(manager, null, "");
+        Method collect = TelegramClientManager.class.getDeclaredMethod("collectGroupSearchResult",
+                TdApi.Chat.class, boolean.class, resultsClass);
+        collect.setAccessible(true);
+        TdApi.Chat repeatedGroup = group(-55L);
+        collect.invoke(manager, repeatedGroup, true, collected);
+        collect.invoke(manager, repeatedGroup, true, collected);
+
+        Method finish = TelegramClientManager.class.getDeclaredMethod("finishGroupSearch",
+                resultsClass, TelegramClientManager.DiscoveryCallback.class, boolean.class, String.class);
+        finish.setAccessible(true);
+        DetailedResult result = new DetailedResult();
+        finish.invoke(manager, collected, result, true, "جستجو کامل شد.");
+
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.success);
+        assertEquals(List.of(-55L), result.ids);
+        assertEquals(1, result.newItems);
+    }
+
+    @Test
     public void discoveryRecoversMissingChatBeforeRecordingActualGroupIds() throws Exception {
         doAnswer(call -> {
             TdApi.Function request = call.getArgument(0);
@@ -354,6 +381,53 @@ public class TelegramPhoneSearchTest {
     }
 
     @Test
+    public void discoveryRanksExactTitleAndCityAheadOfUnrelatedGroup() throws Exception {
+        TdApi.Chat unrelated = group(-70L);
+        unrelated.title = "گروه عمومی";
+        TdApi.Chat partial = group(-71L);
+        partial.title = "برق صنعتی";
+        TdApi.Chat exact = group(-72L);
+        exact.title = "برق صنعتی تهران";
+        for (TdApi.Chat chat : List.of(unrelated, partial, exact)) {
+            update(new TdApi.UpdateNewChat(chat));
+        }
+        response = chats(-70L, -71L, -72L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق صنعتی تهران", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.success);
+        assertEquals(List.of(-72L, -71L, -70L), result.ids);
+    }
+
+    @Test
+    public void discoveryRetainsOnlyValidGroupsAndDeduplicatesInResponseOrder() throws Exception {
+        TdApi.Chat basic = group(-51L);
+        basic.type = new TdApi.ChatTypeBasicGroup();
+        TdApi.Chat supergroup = group(-52L);
+        TdApi.Chat channel = group(-53L);
+        ((TdApi.ChatTypeSupergroup) channel.type).isChannel = true;
+        TdApi.Chat privateChat = group(54L);
+        privateChat.type = new TdApi.ChatTypePrivate();
+        TdApi.Chat secretChat = group(55L);
+        secretChat.type = new TdApi.ChatTypeSecret();
+        TdApi.Chat unknown = group(56L);
+        unknown.type = null;
+        for (TdApi.Chat chat : List.of(basic, supergroup, channel, privateChat, secretChat,
+                unknown, group(0L))) {
+            update(new TdApi.UpdateNewChat(chat));
+        }
+        response = chats(-52L, -51L, -52L, -53L, 54L, 55L, 56L, 0L);
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        assertEquals(List.of(-52L, -51L), result.ids);
+        assertEquals(2, result.newItems);
+        assertEquals(2, manager.getFoundGroups().size());
+        assertEquals(1, requests.size());
+    }
+
+    @Test
     public void discoveryUnexpectedResponsesAndTransportFailuresAreFailures() throws Exception {
         response = new TdApi.Ok();
         DetailedResult unexpected = new DetailedResult();
@@ -368,6 +442,92 @@ public class TelegramPhoneSearchTest {
         assertTrue(failed.completed.await(3, TimeUnit.SECONDS));
         assertFalse(failed.success);
         assertTrue(failed.message, failed.message.contains("503"));
+    }
+
+    @Test
+    public void discoveryRechecksCacheBeforeFetchingNextMissingChat() throws Exception {
+        AtomicReference<Client.ResultHandler> firstRecovery = new AtomicReference<>();
+        doAnswer(call -> {
+            TdApi.Function request = call.getArgument(0);
+            requests.add(request);
+            Client.ResultHandler handler = call.getArgument(1);
+            if (request instanceof TdApi.GetChat) firstRecovery.set(handler);
+            else handler.onResult(chats(-55L, -56L));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        update(new TdApi.UpdateNewChat(group(-56L)));
+        firstRecovery.get().onResult(group(-55L));
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(result.message, result.success);
+        assertEquals(List.of(-56L, -55L), result.ids);
+        assertEquals("Cache update must avoid another GetChat", 2, requests.size());
+    }
+
+    @Test
+    public void overlappingNormalizedQueriesShareRequestAndDeliverEachCallbackOnce() throws Exception {
+        update(new TdApi.UpdateNewChat(group(-55L)));
+        AtomicReference<Client.ResultHandler> delayed = new AtomicReference<>();
+        doAnswer(call -> {
+            requests.add(call.getArgument(0));
+            delayed.set(call.getArgument(1));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult first = new DetailedResult();
+        DetailedResult second = new DetailedResult();
+        manager.discoverPublicGroupsForReview("كابل", first);
+        manager.discoverPublicGroupsForReview(" کابل ", second);
+        assertEquals(1, requests.size());
+        delayed.get().onResult(chats(-55L));
+        delayed.get().onResult(chats(-55L));
+        assertTrue(first.completed.await(3, TimeUnit.SECONDS));
+        assertTrue(second.completed.await(3, TimeUnit.SECONDS));
+        assertEquals(first.ids, second.ids);
+        assertEquals(1, first.calls.get());
+        assertEquals(1, second.calls.get());
+        SearchMetrics.Snapshot metrics = manager.getSearchMetrics();
+        assertEquals(1, metrics.requests);
+        assertEquals(1, metrics.completed);
+        assertEquals(1, metrics.coalesced);
+        assertEquals(1, metrics.cacheHits);
+        assertEquals(1, metrics.discoveryResults);
+        manager.discoverPublicGroupsForReview("کابل", new DetailedResult());
+        assertEquals("Completed searches must not remain in flight", 2, requests.size());
+        delayed.get().onResult(chats(-55L));
+    }
+
+    @Test
+    public void failingPrimaryCallbackDoesNotPreventOtherSearchSubscribers() throws Exception {
+        AtomicReference<Client.ResultHandler> delayed = new AtomicReference<>();
+        doAnswer(call -> { delayed.set(call.getArgument(1)); return null; })
+                .when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        manager.discoverPublicGroupsForReview("برق", (success, fresh, total, message) -> {
+            throw new IllegalStateException("synthetic callback failure");
+        });
+        DetailedResult subscriber = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", subscriber);
+        delayed.get().onResult(new TdApi.Error(503, "synthetic transport failure"));
+        assertTrue(subscriber.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(subscriber.success);
+        assertEquals(1, subscriber.calls.get());
+    }
+
+    @Test
+    public void discoveryRejectsRecoveryForAnUnrequestedChat() throws Exception {
+        doAnswer(call -> {
+            TdApi.Function request = call.getArgument(0);
+            requests.add(request);
+            ((Client.ResultHandler) call.getArgument(1)).onResult(request instanceof TdApi.GetChat
+                    ? group(-99L) : chats(-55L));
+            return null;
+        }).when(transport).send(any(TdApi.Function.class), any(Client.ResultHandler.class));
+        DetailedResult result = new DetailedResult();
+        manager.discoverPublicGroupsForReview("برق", result);
+        assertTrue(result.completed.await(3, TimeUnit.SECONDS));
+        assertFalse(result.success);
+        assertTrue(result.ids.isEmpty());
+        assertTrue(manager.getFoundGroups().isEmpty());
     }
 
     @Test

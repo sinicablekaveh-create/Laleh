@@ -29,13 +29,13 @@ feat(performance-base): complete TASK-010 performance base
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: WordBank reuses three immutable regex Patterns; tools/LalehNormalizationBenchmark.java provides a synthetic repeatable baseline.
+- Measurement: after activating the toolchain, run `java -cp "app/build/intermediates/javac/debug/compileDebugJavaWithJavac/classes:$ANDROID_HOME/platforms/android-35/android.jar" tools/LalehNormalizationBenchmark.java`. Three rounds of 20,000 normalizations: before 63.99/41.47/44.72 ms; after 41.85/23.09/31.04 ms; checksum identical (931680). These host observations do not establish Android-device latency or a statistical benchmark.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 122 tests; lint and APK build passed. Existing normalization and migration tests cover unchanged semantics.
+- Commit SHA: `b405814`.
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: device/thread/memory profiling and browser rendering measurements remain unperformed.
 
 ## Next
 TASK-011

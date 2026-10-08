@@ -29,13 +29,13 @@ feat(cache-layers): complete TASK-018 cache layers
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07 (cache primitives).
+- Changed files: PublicDiscoveryCache and tests; web ResultCache and tests. Public Android metadata is persisted in existing discovery preferences, capped at 200 entries and 24-hour maximum configurable TTL, with revision protection, LRU eviction, expiry cleanup, clock-rollback invalidation and explicit clear/invalidate. Web result cache caps entries at 200, each page at 50 hits and key length at 512, copies ingress/egress and supports TTL/LRU/clear.
+- Android test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 135 tests; lint and APK build passed.
+- Web test/build commands: `npm test` — 9 tests PASS; `npm run typecheck` and `NEXT_TELEMETRY_DISABLED=1 npm run build` — PASS.
+- Commit SHA: `ec6db86` (`feat(cache-layers): add bounded public caches with TTL`).
+- Pull Request: `codex/task-001-audit`; recorded GitHub GraphQL blocker applies.
+- Remaining blockers: integration with delivery/search providers belongs to following tasks; these caches do not access TDLib sessions or initiate network operations. Persistent LRU order reflects the last write, while memory order updates on reads.
 
 ## Next
 TASK-019

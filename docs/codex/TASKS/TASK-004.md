@@ -29,13 +29,12 @@ feat(tdlib-search-pipeline): complete TASK-004 tdlib search pipeline
 Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
-Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+Completed 2026-10-07.
+- Changed files: TelegramClientManager and TelegramPhoneSearchTest. Missing-chat recovery checks the latest TDLib cache before requesting the next chat. A GetChat response with an unexpected ID fails without adding unrelated metadata.
+- Test/build command: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug` — PASS, 110 tests, no failures/errors/skips, 37 lint warnings and no errors; APK built.
+- Commit SHA: `a77f588`.
+- Pull Request: `codex/task-001-audit`; prior GraphQL access blocker still applies.
+- Remaining blockers: device/live Telegram validation remains unperformed.
 
 ## Next
 TASK-005

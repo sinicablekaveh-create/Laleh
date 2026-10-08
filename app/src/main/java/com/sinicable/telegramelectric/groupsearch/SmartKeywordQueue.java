@@ -4,24 +4,25 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import com.sinicable.telegramelectric.SearchQuery;
 
 public final class SmartKeywordQueue {
+    public static final int MAX_SUGGESTIONS = 8;
     public List<String> build(String keyword, List<String> related) {
         Set<String> queue = new LinkedHashSet<>();
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            queue.add(normalize(keyword));
-        }
+        add(queue, keyword);
         if (related != null) {
             for (String item : related) {
-                if (item != null && !item.trim().isEmpty()) {
-                    queue.add(normalize(item));
-                }
+                if (queue.size() >= MAX_SUGGESTIONS) break;
+                add(queue, item);
             }
         }
         return new ArrayList<>(queue);
     }
 
-    private String normalize(String value) {
-        return value.trim().replace('‌', ' ').replaceAll("\\s+", " ");
+    private void add(Set<String> values, String raw) {
+        String value = SearchQuery.parse(raw).normalized;
+        if (value.codePointCount(0, value.length()) >= 2
+                && value.codePoints().anyMatch(Character::isLetter)) values.add(value);
     }
 }

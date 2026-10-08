@@ -30,12 +30,12 @@ Use fix/perf/test/docs/refactor/ci when more accurate.
 
 ## Completion record
 Do not mark complete until real evidence exists:
-- Changed files:
-- Test commands/results:
-- Build commands/results:
-- Commit SHA:
-- Pull Request:
-- Remaining blockers:
+- Changed files: public catalog/category accessors; reusable group cards; responsive category and group-detail pages; page styles and catalog tests.
+- Test commands/results: `cd web && npm test` — 13 passed, 0 failed/skipped.
+- Build commands/results: `cd web && npm run typecheck && NEXT_TELEMETRY_DISABLED=1 npm run build` — passed; production build exposes `/`, `/categories`, `/categories/[name]`, and `/groups/[id]`.
+- Commit SHA: `9ab13f7`.
+- Pull Request: Not created; GitHub GraphQL authorization is still unavailable.
+- Remaining blockers: The approved catalog is intentionally empty and no remote service exists; no data was invented. Device/live Telegram and browser visual checks remain unperformed.
 
 ## Next
 TASK-023

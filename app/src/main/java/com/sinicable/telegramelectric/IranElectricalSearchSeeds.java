@@ -62,11 +62,12 @@ final class IranElectricalSearchSeeds {
     private static final String[] TEMPLATES = {
             "گروه %s",
             "گروه تلگرام %s",
-            "گروه ایرانی %s",
-            "گروه تخصصی %s",
-            "گروه فنی %s",
+            "%s تهران",
+            "%s مشهد",
+            "%s اصفهان",
+            "%s شیراز",
+            "%s تبریز",
             "%s ایران",
-            "%s ایرانی",
             "%s تلگرام",
             "%s بازار ایران",
             "%s متخصصان ایران",
@@ -79,7 +80,6 @@ final class IranElectricalSearchSeeds {
             "%s پروژه ایران",
             "%s صنعت ایران",
             "%s انجمن ایران",
-            "%s شبکه متخصصان ایران"
     };
 
     static List<String> build() {

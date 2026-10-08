@@ -9,13 +9,19 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.regex.Pattern;
+import com.sinicable.telegramelectric.groupsearch.GroupKeywordBank;
+import com.sinicable.telegramelectric.groupsearch.SmartKeywordQueue;
 
 public final class WordBank {
     private static final String PREFS = "electrical_word_bank";
     private static final String KEY_WORDS = "words";
     private static final String KEY_REMOVED_WORDS = "removed_words";
     private static final String KEY_IRAN_SEED_VERSION = "iran_seed_version";
-    private static final int IRAN_SEED_VERSION = 1;
+    private static final int IRAN_SEED_VERSION = 2;
+    private static final Pattern INVISIBLE_SEPARATORS = Pattern.compile("[\\u200C\\u200E\\u200F]");
+    private static final Pattern DIACRITICS = Pattern.compile("[\\u064B-\\u065F\\u0670]");
+    private static final Pattern WHITESPACE = Pattern.compile("[\\s\\p{Z}]+");
 
     private static final Set<String> STOP_WORDS = new HashSet<>(Arrays.asList(
             "این", "اون", "آن", "برای", "با", "از", "به", "در", "رو", "را", "که", "یک",
@@ -173,6 +179,16 @@ public final class WordBank {
         return words.size();
     }
 
+    /** Curated alternatives are suggestions only; they never mutate or relearn deleted words. */
+    public synchronized List<String> suggestions(String query) {
+        if (SearchQuery.parse(query).normalized.isEmpty()) return Collections.emptyList();
+        List<String> related = new GroupKeywordBank().related(query);
+        if (related.isEmpty()) return Collections.emptyList();
+        List<String> result = new SmartKeywordQueue().build(query, related);
+        result.removeIf(value -> words.contains(value) || !isCandidate(value));
+        return result;
+    }
+
     public synchronized int learnedSignalCount() {
         return offlineAI.learnedSignalCount();
     }
@@ -207,16 +223,22 @@ public final class WordBank {
                 .putStringSet(KEY_REMOVED_WORDS, new HashSet<>(removedWords)).apply();
     }
 
-    static String normalize(String value) {
+    public static String normalize(String value) {
         if (value == null) return "";
-        return value
+        String letters = value
                 .trim()
                 .toLowerCase(Locale.ROOT)
                 .replace('ي', 'ی')
                 .replace('ى', 'ی')
                 .replace('ك', 'ک')
-                .replaceAll("[\\u064B-\\u065F\\u0670]", "")
-                .replaceAll("[\\s\\p{Z}]+", " ")
-                .trim();
+                .replace('ة', 'ه')
+                .replace('ۀ', 'ه')
+                .replace('أ', 'ا')
+                .replace('إ', 'ا')
+                .replace('ؤ', 'و')
+                .replace('ئ', 'ی');
+        String spaced = INVISIBLE_SEPARATORS.matcher(letters).replaceAll(" ");
+        String unmarked = DIACRITICS.matcher(spaced).replaceAll("");
+        return WHITESPACE.matcher(unmarked).replaceAll(" ").trim();
     }
 }
