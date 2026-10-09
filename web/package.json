@@ -12,7 +12,11 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "measure:build": "node scripts/report-build-metrics.mjs"
+    "measure:build": "node scripts/report-build-metrics.mjs",
+    "benchmark:discovery": "node --experimental-strip-types scripts/benchmark-discovery.ts",
+    "test:smoke": "node scripts/smoke-production.mjs",
+    "test:ci": "node --experimental-strip-types --test --test-reporter=spec --test-reporter=junit --test-reporter-destination=stdout --test-reporter-destination=reports/web-tests.xml tests/*.test.ts",
+    "validate:catalog": "node --experimental-strip-types scripts/validate-catalog.ts"
   },
   "dependencies": {
     "next": "16.4.0",
