@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="discovery_result_page">%1$d گروه — صفحه %2$d از %3$d</string>
+</resources>

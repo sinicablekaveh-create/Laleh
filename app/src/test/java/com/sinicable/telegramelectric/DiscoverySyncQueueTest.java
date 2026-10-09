@@ -76,4 +76,12 @@ public class DiscoverySyncQueueTest {
         org.json.JSONObject noncanonical = item(-55, 1).toJson().put("username", "ELECTRIC_GROUP");
         assertThrows(IllegalArgumentException.class, () -> DiscoveryMetadata.fromJson(noncanonical));
     }
+    @Test public void publicFacetsRejectControlsAndBidiOverrides() {
+        for (String value : new String[] {"public\u0000", "public\u202e", "public\u2066"}) {
+            assertThrows(IllegalArgumentException.class, () -> new DiscoveryMetadata(-1,
+                    "public", "public_group", value, "", 1));
+            assertThrows(IllegalArgumentException.class, () -> new DiscoveryMetadata(-1,
+                    "public", "public_group", "", value, 1));
+        }
+    }
 }

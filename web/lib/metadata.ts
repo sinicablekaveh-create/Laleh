@@ -11,6 +11,7 @@ export type PublicGroup = Readonly<{
 }>;
 
 const fields = new Set(["schemaVersion", "groupId", "title", "username", "category", "location", "revision"]);
+const unsafeLabel = /[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u;
 const MIN_LONG = -9223372036854775808n;
 const MAX_LONG = 9223372036854775807n;
 
@@ -30,7 +31,8 @@ export function parsePublicMetadata(value: unknown): PublicGroup | null {
   if (typeof row.title !== "string" || !row.title.trim() || [...row.title.trim()].length > 256
     || /[\u0000-\u001F\u007F\u202A-\u202E\u2066-\u2069]/u.test(row.title)) return null;
   if (typeof row.username !== "string" || !/^[a-z][a-z0-9_]{4,31}$/u.test(row.username)) return null;
-  if (typeof row.category !== "string" || typeof row.location !== "string") return null;
+  if (typeof row.category !== "string" || typeof row.location !== "string"
+    || unsafeLabel.test(row.category) || unsafeLabel.test(row.location)) return null;
   const category = normalizeQuery(row.category), location = normalizeQuery(row.location);
   if ([...category].length > 96 || [...location].length > 96) return null;
   return Object.freeze({ schemaVersion: 2, groupId: id, title: row.title.trim(), username: row.username,

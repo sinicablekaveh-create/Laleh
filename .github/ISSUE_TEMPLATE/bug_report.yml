@@ -1,0 +1,20 @@
+name: Bug report
+description: Report reproducible Laleh behavior without private data
+title: "bug: "
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps, expected behavior, and actual behavior
+      description: Do not include phone numbers, Telegram messages, credentials, codes, or session files.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version, Android version, or web browser version
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized diagnostics
+      description: Include numeric counters or error codes only.

@@ -337,3 +337,33 @@ Git history مرجع قطعی تمام تغییرات و نویسندگان اس
 - `npm test`: ۱۸ موفق، صفر شکست/skip؛ typecheck و build تولیدی موفق. HTTP تولیدی RTL، فیلتر/مرتب‌سازی انتخاب‌شده، صفحه‌بندی و حالت خالی را تأیید کرد؛ کاتالوگ نمونه اضافه نشد.
 - Java 17، Gradle 8.9، SDK 35: ۱۳۹ تست Android، صفر failure/error/skip؛ فرمان‌های استاندارد تست/lint/build موفق؛ lint بدون خطا با ۳۶ هشدار؛ APK ساخته و manifest/dex/TDLib arm64 بررسی شد. فایل‌های tracked تولیدشده پس از build بازیابی شدند؛ سورس Android تغییر نکرد.
 - CI موجود حفظ و job تست/typecheck/build وب و trigger شاخهٔ جدید اضافه شد. هیچ merge، release، force-push یا تغییر شاخهٔ پیش‌فرض انجام نشد. تست دستگاه، تلگرام زنده و بررسی بصری مرورگر اجرا نشدند. TASK-024 تا TASK-055 همچنان pending هستند.
+
+
+### 2026-10-09 — Requested APK build
+
+- Built checkout `9f2c140` with external Gradle 8.9 (repository has no wrapper), full Temurin JDK 17 and SDK 35. Initial preinstalled Java 21 runtime lacked jlink; rerun with full JDK 17 succeeded.
+- Ran `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest lintDebug assembleDebug`: BUILD SUCCESSFUL; 139 tests, zero failures/errors/skips; lint zero errors, 35 warnings.
+- APK: `app/build/outputs/apk/debug/app-debug.apk`, version 1.13.0 (15), arm64-v8a. APK signature and package metadata verified. Preserved tracked logo and restored original tracked APK after packaging.
+- No application source changes or device/live Telegram tests. Chat output directory /codex was unavailable due to filesystem permissions; APK remains in workspace.
+
+
+### 2026-10-09 — Requested release APK build
+
+- Ran external Gradle 8.9 with full JDK 17 and SDK 35: `gradle --no-daemon --max-workers=4 -x generateAppLogo testReleaseUnitTest lintRelease assembleRelease`; BUILD SUCCESSFUL.
+- Release unit tests: {'tests': 139, 'failures': 0, 'errors': 0, 'skipped': 0}; release lint: {'Error': 0, 'Warning': 35}.
+- Produced `app/build/outputs/apk/release/app-release-unsigned.apk`, version 1.13.0 (15), arm64-v8a. ZIP integrity and package metadata checked. No release signing configuration/key available; APK remains unsigned and cannot be installed until signed.
+- No source changes, publishing, Linear issue creation, or device/live Telegram tests performed.
+
+
+### 2026-10-09 — Full Laleh local discovery expansion candidate
+
+- User selected completing remaining features. Reviewed TASK-026–055, preserving the previously authorized local-only work while no dedicated public sync service exists. Branch: `codex/full-laleh-local-20261009`, baseline `9f2c140` (remote main verified).
+- Commits: `ea7f648` consent/cancel/close and public-label security; `e34a34c` Android/web local favorites/history/theme/category controls, shared query fixtures, ranked UI selection, faster prefix index, explicit recovery and compatible engine-v3/search-v6 foundation; `7bb9a2e` debug/release CI matrix, reports, catalog checks, HTTP smoke, benchmark and workflow templates.
+- Reproduced consent revoke/reenable and public-label validation failures before fixing; independent reviewer found and helped resolve dispatch revocation and relevance-order defects. Final independent targeted review found no remaining concrete blocker.
+- Actual full Android command with full JDK 17/Gradle 8.9/SDK 35: `gradle --no-daemon --max-workers=4 -x generateAppLogo testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease` passed. 151 tests per variant, zero failure/error/skip; lint zero errors and 35 baseline warnings each. Debug signature verified, both APKs produced; release unsigned, version 1.13.0/15 arm64-v8a. Tracked original APK restored after packaging; logo preserved.
+- Web: `npm ci`, `npm run test:ci` (37 passed, zero failures/skips), typecheck, production build, HTTP smoke, catalog validation and build metrics passed. `npm audit --audit-level=high`: zero vulnerabilities. Isolated Chromium tests passed mobile RTL/overflow, history opt-in/out, theme, favorite removal, clearing, storage denied and zero page errors; no private data used.
+- Synthetic 10,000-row local benchmark: p50/p95 1.82/5.31 ms versus baseline 4.44/18.09 ms; not device/production performance. Build metrics 29 JS chunks, 958819 raw bytes, 299016 gzip bytes.
+- No release signing, actual device/live Telegram tests, configured host, remote sync service or production publication. Catalog remains empty. Browser and Android choices remain device-local; existing core word-search history is unchanged. Legacy transport cannot physically cancel; production adapters require CancellableTransport.
+- Per-task evidence and incomplete gates: `docs/codex/LOCAL_EXPANSION_LEDGER.md`; deployment/signing/version/rollback instructions: `docs/codex/RELEASE_RUNBOOK.md`; updated test matrix and security review. TASK-051 and production TASK-054 remain externally blocked; do not describe the full production chain as complete.
+
+- Remote verification after publication: Draft PR #38 (`https://github.com/sinicablekaveh-create/Laleh/pull/38`) against main. GitHub Actions run `37916020048` on `9dc1da7` passed web and both Android variants, including APK/report uploads. Debug artifact `11609473559`, unsigned Release artifact `11609314112`; CI report-archive download denied by artifact host, so detailed numerical counts remain from parsed local JUnit evidence. No merge or release publishing performed.

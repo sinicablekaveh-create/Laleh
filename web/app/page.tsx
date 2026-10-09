@@ -2,6 +2,7 @@ import { searchState, searchLink, type SearchParameters } from "../lib/search-op
 import { normalizeQuery } from "../lib/query";
 import { localCatalog } from "../lib/local-catalog";
 import Link from "next/link";
+import { DiscoveryPreferences } from "./components/discovery-preferences";
 import { GroupCards } from "./components/group-cards";
 
 export default async function DiscoveryPage({ searchParams }: {
@@ -10,7 +11,8 @@ export default async function DiscoveryPage({ searchParams }: {
   const params = await searchParams;
   const state = searchState(params);
   const { query, page } = state;
-  const result = localCatalog.search(query, (page - 1) * 20, 20, state);
+  const discovery = localCatalog.discover(query, (page - 1) * 20, 20, state);
+  const result = discovery.page;
   const categories = localCatalog.categories();
   const locations = localCatalog.locations();
   const pageLink = (value: number) => searchLink(state, value);
@@ -50,6 +52,7 @@ export default async function DiscoveryPage({ searchParams }: {
         <p><Link href="/">پاک کردن جست‌وجو و فیلترها</Link></p>
       </form>
     </section>
+    <DiscoveryPreferences query={query} category={state.category} />
     <section id="search-results" tabIndex={-1} aria-live="polite" aria-label="نتایج جست‌وجو">
       <h2>{query ? `نتایج برای «${query}»` : "فهرست گروه‌های عمومی"}</h2>
       <p>{new Intl.NumberFormat("fa-IR").format(result.total)} گروه</p>
@@ -57,6 +60,13 @@ export default async function DiscoveryPage({ searchParams }: {
         <p>{result.total ? "در این صفحه نتیجه‌ای نیست؛ صفحهٔ قبل را انتخاب کن."
           : "گروه عمومی تأییدشده‌ای برای نمایش پیدا نشد."}</p></div>
         : <GroupCards hits={result.hits} />}
+      {discovery.suggestions.length > 0 && <aside aria-label="پیشنهاد جست‌وجو">
+        <h3>جست‌وجوی کوتاه‌تر</h3>
+        <p>برای این عبارت‌ها گروه موجود است؛ فیلترهای انتخابی حفظ می‌شوند.</p>
+        <ul>{discovery.suggestions.map(suggestion => <li key={suggestion}>
+          <Link href={searchLink({ ...state, query: suggestion }, 1)}>{suggestion}</Link>
+        </li>)}</ul>
+      </aside>}
       <nav className="pages" aria-label="صفحه‌های نتیجه">
         <span aria-current="page">صفحهٔ {page.toLocaleString("fa-IR")}</span>
         {page > 1 && <Link href={pageLink(page - 1)}>صفحهٔ قبل</Link>}

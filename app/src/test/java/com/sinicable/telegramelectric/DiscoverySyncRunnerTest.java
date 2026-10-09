@@ -72,4 +72,86 @@ public class DiscoverySyncRunnerTest {
         assertEquals(1, queue.snapshot().size()); assertNull(cache.get(-55));
         queue.setEnabled(false); assertFalse(runner.runOnce());
     }
+    @Test public void revokedConsentCannotAcceptAnEarlierUploadAfterReenable() {
+        TestPreferences storage = new TestPreferences();
+        DiscoverySyncQueue queue = new DiscoverySyncQueue(storage.context);
+        queue.setEnabled(true); queue.offer(item(1));
+        AtomicReference<DiscoverySyncRunner.Completion> response = new AtomicReference<>();
+        PublicDiscoveryCache cache = new PublicDiscoveryCache(storage.context, 1000, () -> 1000);
+        DiscoverySyncRunner runner = new DiscoverySyncRunner(queue, cache,
+                (value, callback) -> response.set(callback), mock(ScheduledExecutorService.class), () -> 1000);
+        assertTrue(runner.runOnce());
+        queue.setEnabled(false); queue.setEnabled(true); queue.offer(item(1));
+        response.get().complete(DiscoverySyncRunner.Result.ACCEPTED);
+        assertNull(cache.get(-55));
+        assertEquals(1, queue.snapshot().size());
+    }
+    @Test public void closeCancelsTransportAndDoesNotAcceptLateCallbacks() {
+        TestPreferences storage = new TestPreferences();
+        DiscoverySyncQueue queue = new DiscoverySyncQueue(storage.context);
+        queue.setEnabled(true); queue.offer(item(1));
+        AtomicReference<DiscoverySyncRunner.Completion> response = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger cancels = new java.util.concurrent.atomic.AtomicInteger();
+        DiscoverySyncRunner.CancellableTransport transport = (value, callback) -> {
+            response.set(callback); return cancels::incrementAndGet;
+        };
+        PublicDiscoveryCache cache = new PublicDiscoveryCache(storage.context, 1000, () -> 1000);
+        DiscoverySyncRunner runner = new DiscoverySyncRunner(queue, cache, transport,
+                mock(ScheduledExecutorService.class), () -> 1000);
+        assertTrue(runner.runOnce()); runner.close(); runner.close();
+        assertEquals(1, cancels.get()); assertFalse(runner.runOnce());
+        response.get().complete(DiscoverySyncRunner.Result.ACCEPTED);
+        assertNull(cache.get(-55)); assertEquals(1, queue.snapshot().size());
+    }
+    @Test public void consentRevokedBeforeDispatchDoesNotInitiateTransport() {
+        TestPreferences storage = new TestPreferences();
+        DiscoverySyncQueue queue = new DiscoverySyncQueue(storage.context);
+        queue.setEnabled(true); queue.offer(item(1));
+        ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+        when(scheduler.schedule(any(Runnable.class), eq(30L), eq(TimeUnit.SECONDS))).thenAnswer(call -> {
+            queue.setEnabled(false); return mock(ScheduledFuture.class);
+        });
+        DiscoverySyncRunner.Transport transport = mock(DiscoverySyncRunner.Transport.class);
+        DiscoverySyncRunner runner = new DiscoverySyncRunner(queue,
+                new PublicDiscoveryCache(storage.context, 1000, () -> 1000), transport, scheduler, () -> 1000);
+        assertTrue(runner.runOnce()); verifyNoInteractions(transport); assertFalse(runner.runOnce());
+    }
+    @Test public void immediateCompletionCannotStartAnotherUploadBeforeHandleReturns() {
+        TestPreferences storage = new TestPreferences();
+        DiscoverySyncQueue queue = new DiscoverySyncQueue(storage.context);
+        queue.setEnabled(true); queue.offer(item(1));
+        AtomicReference<DiscoverySyncRunner> owner = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger cancels = new java.util.concurrent.atomic.AtomicInteger();
+        DiscoverySyncRunner.CancellableTransport transport = (value, callback) -> {
+            callback.complete(DiscoverySyncRunner.Result.ACCEPTED);
+            queue.offer(item(2)); assertFalse(owner.get().runOnce());
+            return cancels::incrementAndGet;
+        };
+        DiscoverySyncRunner runner = new DiscoverySyncRunner(queue,
+                new PublicDiscoveryCache(storage.context, 1000, () -> 1000), transport,
+                mock(ScheduledExecutorService.class), () -> 1000);
+        owner.set(runner); assertTrue(runner.runOnce()); assertEquals(1, cancels.get());
+        assertEquals(2, queue.snapshot().get(0).revision);
+    }
+    @Test public void timeoutCancelsPhysicalTransportOnceAndBacksOffRetry() {
+        TestPreferences storage = new TestPreferences();
+        DiscoverySyncQueue queue = new DiscoverySyncQueue(storage.context);
+        queue.setEnabled(true); queue.offer(item(1));
+        AtomicReference<Runnable> timeout = new AtomicReference<>();
+        AtomicReference<DiscoverySyncRunner.Completion> response = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger cancels = new java.util.concurrent.atomic.AtomicInteger();
+        ScheduledExecutorService scheduler = mock(ScheduledExecutorService.class);
+        when(scheduler.schedule(any(Runnable.class), eq(30L), eq(TimeUnit.SECONDS))).thenAnswer(call -> {
+            timeout.set(call.getArgument(0)); return mock(ScheduledFuture.class);
+        });
+        DiscoverySyncRunner.CancellableTransport transport = (value, callback) -> {
+            response.set(callback); return cancels::incrementAndGet;
+        };
+        PublicDiscoveryCache cache = new PublicDiscoveryCache(storage.context, 1000, () -> 1000);
+        DiscoverySyncRunner runner = new DiscoverySyncRunner(queue, cache, transport, scheduler, () -> 1000);
+        assertTrue(runner.runOnce()); timeout.get().run();
+        response.get().complete(DiscoverySyncRunner.Result.ACCEPTED);
+        assertEquals(1, cancels.get()); assertFalse(runner.runOnce()); assertNull(cache.get(-55));
+        assertNotNull(queue.nextReady(6000));
+    }
 }

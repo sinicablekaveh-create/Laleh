@@ -37,3 +37,17 @@ test("duplicate usernames cannot identify distinct groups and revisions release 
   assert.equal(index.upsert({ ...row("-1", "برق", "2"), username: "renamed_group" }), true);
   assert.equal(index.upsert({ ...row("-2", "public"), username: "group_1" }), true);
 });
+
+test("punctuation-only queries never expand into unfiltered browse", () => {
+  const index = new MemoryDiscoveryIndex([row("-1", "برق")]);
+  assert.equal(index.search("!!!").total, 0);
+  assert.equal(index.search("").total, 1);
+});
+
+test("sorted vocabulary stays current across new and removed prefixes", () => {
+  const index = new MemoryDiscoveryIndex([row("-1", "کابل")]);
+  assert.equal(index.search("کاب").total, 1);
+  index.upsert(row("-1", "خورشیدی", "2"));
+  assert.equal(index.search("کاب").total, 0);
+  assert.equal(index.search("خور").total, 1);
+});

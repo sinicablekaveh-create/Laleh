@@ -10,5 +10,24 @@ export function normalizeQuery(value: string): string {
 
 export function searchQuery(value: string | string[] | undefined): string {
   const raw = Array.isArray(value) ? value[0] ?? "" : value ?? "";
-  return normalizeQuery([...raw].slice(0, 96).join(""));
+  let bounded = "", count = 0;
+  for (const point of raw) { if (count++ >= 96) break; bounded += point; }
+  return normalizeQuery(bounded);
+}
+
+const cities = ["تهران", "مشهد", "اصفهان", "شیراز", "تبریز"];
+const categories = ["برق صنعتی", "برق ساختمان", "انرژی خورشیدی", "تابلو برق", "اتوماسیون صنعتی", "سیم و کابل", "برق", "کابل", "روشنایی"];
+export type QueryAnalysis = Readonly<{ normalized: string; category: string; location: string;
+  intent: "discovery" | "learning" | "market"; keywords: readonly string[] }>;
+
+/** Same bounded intent/category/location rules used by Android SearchQuery. */
+export function analyzeQuery(raw: string): QueryAnalysis {
+  const normalized = searchQuery(raw);
+  const has = (phrase: string) => (` ${normalized} `).includes(` ${phrase} `);
+  const location = cities.find(has) ?? "";
+  const category = categories.find(has) ?? "";
+  const intent = has("آموزش") ? "learning" : has("خرید") || has("فروش") ? "market" : "discovery";
+  const keywords = [...new Set(normalized.split(" ").filter(word => word && word !== location
+    && !["گروه", "تلگرام", "و", "در", "از", "به", "برای"].includes(word)))].slice(0, 16);
+  return Object.freeze({ normalized, category, location, intent, keywords: Object.freeze(keywords) });
 }

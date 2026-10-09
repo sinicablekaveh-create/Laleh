@@ -31,6 +31,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.all { it.systemProperty("laleh.sharedDir", rootProject.file("shared").absolutePath) }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

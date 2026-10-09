@@ -30,6 +30,8 @@ public final class DiscoveryMetadata {
     }
 
     private static String boundedLabel(String value) {
+        if (value != null && value.matches("(?s).*[\\x00-\\x1F\\x7F\\u202A-\\u202E\\u2066-\\u2069].*"))
+            throw new IllegalArgumentException("Invalid public label");
         String clean = WordBank.normalize(value);
         if (clean.codePointCount(0, clean.length()) > 96) throw new IllegalArgumentException("Label too long");
         return clean;

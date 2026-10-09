@@ -80,3 +80,19 @@ gradle --no-daemon testDebugUnitTest assembleDebug
 ## حافظهٔ پروژه برای ChatGPT و Codex
 
 برای ادامهٔ کار در نشست‌های بعدی، وضعیت فنی، گزارش فعالیت، نتایج آخرین اعتبارسنجی و اصول امنیتی در [CHATGPT_MEMORY.md](CHATGPT_MEMORY.md) نگهداری می‌شود. این فایل نباید شامل اطلاعات ورود، داده‌های خصوصی کاربران یا فایل نشست تلگرام باشد.
+
+## Local discovery expansion candidate — 2026-10-09
+
+Android now includes public-group discovery, relevance-preserving result cards,
+device-local favorites, a title/topic filter, opt-in discovery search history and
+saved theme choices (applied on next launch). These controls use the existing
+Telegram client. Existing word-search history and account authentication are
+unchanged. Discovery settings can be cleared without deleting the Telegram session.
+
+The web adds browser-local favorites/history/theme/category controls, explicit
+zero-result suggestions and a compatible versioned discovery extension. No live
+catalog, remote synchronization or signed production release is claimed.
+
+Validation, release requirements and remaining external gates are documented in
+`docs/codex/TEST_MATRIX.md`, `docs/codex/RELEASE_RUNBOOK.md` and the task completion
+ledger. Version 1.13.0/15 is retained until a distribution version is selected.

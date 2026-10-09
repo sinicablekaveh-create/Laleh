@@ -107,15 +107,7 @@ export function relatedContract(
   if (!group) return failure(404, "GROUP_NOT_FOUND", "No approved public group exists for this identifier.");
 
   const limit = boundedInteger(rawLimit, 6, 1, 20);
-  const options: SearchOptions = group.category
-    ? { category: group.category }
-    : group.location ? { location: group.location } : {};
-  const page = catalog.search("", 0, Math.min(50, limit + 1), options);
-  const items = page.hits
-    .map(hit => hit.group)
-    .filter(candidate => candidate.groupId !== groupId)
-    .slice(0, limit)
-    .map(publicGroup);
+  const items = catalog.recommend(groupId, limit).map(publicGroup);
 
   return success(Object.freeze({ groupId, items: Object.freeze(items) }));
 }
@@ -167,6 +159,8 @@ export async function jsonResponse<T>(
   const headers = new Headers({
     "Content-Type": "application/json; charset=utf-8",
     "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
   });
 
   if (result.status === 200 && options.publicCache) {

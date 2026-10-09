@@ -9,3 +9,7 @@ web/.next/
 web/coverage/
 web/*.tsbuildinfo
 web/.env*
+web/reports/
+*.jks
+*.keystore
+keystore.properties

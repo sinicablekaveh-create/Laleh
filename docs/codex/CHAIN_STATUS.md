@@ -1,6 +1,6 @@
 # Laleh execution status
 
-Updated 2026-10-08 (Asia/Tehran). Branch: `codex/task-025-web-optimization-20261008`.
+Updated 2026-10-09 (Asia/Tehran). Candidate branch: `codex/full-laleh-local-20261009`.
 
 | Tasks | Evidence-backed state |
 | --- | --- |
@@ -15,7 +15,7 @@ Updated 2026-10-08 (Asia/Tehran). Branch: `codex/task-025-web-optimization-20261
 | TASK-023 | Local filter/sort/accessibility/mobile slice implemented and validated. |
 | TASK-024 | Versioned local/public API contracts and read-only search/group/related/category/health routes implemented and validated on Draft PR #35. |
 | TASK-025 | Web cache/privacy policy, conditional ETags, bounded navigation prefetch, loading state and measured build optimization implemented and validated on Draft PR #36. |
-| TASK-026–055 | Pending; not represented as completed. |
+| TASK-026–055 | Local features/hardening implemented and validated; per-task evidence and incomplete production gates are in [LOCAL_EXPANSION_LEDGER.md](LOCAL_EXPANSION_LEDGER.md). Full synchronization and production readiness remain blocked. |
 
 Latest TASK-025 implementation validation: GitHub Actions run `37772949785` on commit
 `838d9a4568a58acbc3d34ba2c2a93760d0c5791f` passed 26 web tests, web typecheck and
@@ -42,3 +42,23 @@ The supplied Telegram Core documentation URL is not a metadata delivery endpoint
 Draft PR #36 is stacked on Draft PR #35 / TASK-024. Device/live Telegram and browser
 visual tests remain unperformed. Existing PR #20/#22 lifecycle/permission conflicts
 and the #28/#30/#31/#32 stack remain separate integration decisions.
+
+
+## Latest local candidate validation (2026-10-09)
+
+151 Android tests passed per Debug/Release variant; zero failures/errors/skips. Both
+lint variants passed with zero errors/35 baseline warnings; both APKs assembled.
+Release remains unsigned, version 1.13.0/15. Web: 37 tests passed, typecheck and
+production build/HTTP smoke passed; isolated Chromium preference/mobile interaction
+checks passed; npm audit reported zero vulnerabilities. Catalog validation passed
+with zero approved records. Independent final review found no additional concrete
+blockers. Detailed commands, commits, measurements and external limitations are
+recorded in the local expansion ledger and release runbook.
+
+TASK-001–025 baseline is local/main commit `9f2c140` (merge PR #37), verified against
+remote main on 2026-10-09. Prior stacked PR #35/#36 references above are historical.
+Draft PR #38: https://github.com/sinicablekaveh-create/Laleh/pull/38.
+Remote CI run 37916020048 passed web, Debug and Release on source/docs commit
+`9dc1da7`; both APK artifacts and test reports uploaded. Debug artifact ID
+11609473559; unsigned Release artifact ID 11609314112. Documentation-only follow-up
+records these observations without changing the validated application source.
