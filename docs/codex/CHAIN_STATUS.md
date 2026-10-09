@@ -57,4 +57,8 @@ recorded in the local expansion ledger and release runbook.
 
 TASK-001–025 baseline is local/main commit `9f2c140` (merge PR #37), verified against
 remote main on 2026-10-09. Prior stacked PR #35/#36 references above are historical.
-Remote CI evidence for the new candidate is not yet recorded here.
+Draft PR #38: https://github.com/sinicablekaveh-create/Laleh/pull/38.
+Remote CI run 37916020048 passed web, Debug and Release on source/docs commit
+`9dc1da7`; both APK artifacts and test reports uploaded. Debug artifact ID
+11609473559; unsigned Release artifact ID 11609314112. Documentation-only follow-up
+records these observations without changing the validated application source.

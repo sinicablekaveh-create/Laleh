@@ -7,6 +7,7 @@ Source commits:
 
 - S: `ea7f648` — consent lifecycle, cancel/close, public label validation and headers.
 - F: `e34a34c` — local Android/web discovery controls, shared query fixtures, versioned engine, prefix optimization and recommendations.
+- D: `9dc1da7` — local task evidence, runbook, memory and test matrix.
 - C: `7bb9a2e` — debug/release CI matrix, catalog checks, HTTP smoke, reports and workflow templates.
 
 Evidence:
@@ -17,6 +18,15 @@ Evidence:
 - B: isolated Chromium production interaction checks passed mobile RTL/no horizontal overflow, local history opt-in/out, dark theme, favorite removal, clear controls, denied-storage feedback and zero page errors. Browser fixture favorites were synthetic and never added to the catalog. This is not a complete visual/keyboard audit.
 - R: independent read-only review identified consent dispatch and ranked UI selection issues; both corrected and covered by regression tests. Final targeted review found no additional concrete blockers. Legacy noncancellable transport remains local/mock compatibility only.
 
+## GitHub evidence
+
+Draft [PR #38](https://github.com/sinicablekaveh-create/Laleh/pull/38), base main.
+[Build Android APK run 37916020048](https://github.com/sinicablekaveh-create/Laleh/actions/runs/37916020048)
+passed all three jobs (web, Android Debug, Android Release) on `9dc1da718fa7a55005a65fbe8d70150ec0bfbc0f`.
+Artifacts uploaded: `telegram-electric-Debug` ID `11609473559` (installable test build),
+`telegram-electric-Release` ID `11609314112` (unsigned), both regression reports and web JUnit report.
+CI was observed directly through GitHub job/step results. Report-archive downloads from this executor were denied by the artifact host; local detailed test counts above were parsed from local JUnit files, not falsely attributed to downloaded CI reports.
+
 ## Per-task state
 
 “Validated local increment” means the stated change ran through the listed gates. It does not satisfy external or production prerequisites for dependent tasks. “Prepared/blocked” remains incomplete until the stated external evidence exists. No remote delivery, deployment or signed release is fabricated.
@@ -25,7 +35,7 @@ Evidence:
 | --- | --- | --- | --- |
 | 026 Security Review | Validated local audit/hardening: consent epochs, control/bidi label rejection, browser headers, keystore ignores | S / A,W,R | Existing credential/encryption architecture documented; device/hosting security validation outstanding |
 | 027 Testing Expansion | Validated consent/dispatch/cancel, preferences, ranked selection, shared query and recovery regressions | S,F / A,W,B | Real Telegram/device coverage still needed |
-| 028 CI/CD | Implemented variant matrix, failure gates, JUnit reports, exact APK paths, dependency/catalog checks and smoke | C / A,W | Remote workflow results must be checked after push |
+| 028 CI/CD | Implemented variant matrix, failure gates, JUnit reports, exact APK paths, dependency/catalog checks and smoke | C / A,W | Remote web/Debug/Release jobs all passed on run 37916020048 |
 | 029 Documentation | Architecture/privacy, test matrix, runbook, memory and this ledger updated | Documentation commit / review | Maintain after external configuration/release decisions |
 | 030 Release Planning | Defined signing/version gates, artifacts, known issues and forward-version rollback | Runbook / A,W | Signing key, distribution version/destination and device update test absent |
 | 031 Architecture Improvements | Reused CatalogService for API/UI recommendations; pure Android selection; injectable cancellable transport, no duplicate TDLib client | S,F / A,W,R | No broad rewrite required by audit |
@@ -43,7 +53,7 @@ Evidence:
 | 043 Unified Discovery | Shared query parsing fixture contract and matching pure relevance weights; stable decimal IDs/schema | F / A,W | Cross-service catalog identity/provenance awaits service |
 | 044 Search Intelligence v4 | Deterministic category/location/intent analysis; explicit bounded suggestions proven against catalog under unchanged filters | F / W | No private-history adaptive server profiling introduced |
 | 045 Data & Index Optimization | Sorted prefix vocabulary, cached normalized titles, monotonic revision updates, duplicate/source catalog gate | F,C / W,P | Fresh remote source/retention policy absent |
-| 046 GitHub Engineering Workflow | Atomic source commits, issue/PR templates, codex branch CI triggers and exact variant artifacts | S,F,C / review | Remote CI/PR review must be checked after publication |
+| 046 GitHub Engineering Workflow | Atomic source commits, issue/PR templates, codex branch CI triggers and exact variant artifacts | S,F,C / review | Remote CI passed; human PR review remains open |
 | 047 Automated Testing Platform | Shared Android/web fixture matrix, JUnit reports, production API smoke and documented device gates | F,C / A,W | Live network/device test environments not configured |
 | 048 Performance Engineering | Measured synthetic prefix/search/cache/build behavior; audited bounded rendering (20 Android cards) | F,C / P,A,W,B | Full TDLib/device memory/UI profile remains incomplete |
 | 049 Database & Sync Architecture | Existing outbox/preferences/cache retained; consent generations, revision-safe acknowledgments, retry and cancelable boundary validated | S / A,R | Authorized remote conflict/removal policy still required |
@@ -51,7 +61,7 @@ Evidence:
 | 051 Full Platform Synchronization | Prepared shared public contract and transport lifecycle; network delivery deliberately remains unwired | S,F / A,W,R | **Blocked:** approved endpoint, auth, catalog provenance and retention/removal contract absent |
 | 052 Unified User Experience | Local history opt-in, favorites, theme/category choices and clear controls on Android/web | F / A,W,B | Choices are independent per device/browser; account preference sync is not implemented |
 | 053 Sync & Performance Optimization | Local cancellation/deduplication/revision-safe queue and measured index/cache improvements | S,F,C / A,W,P | Real sync latency/cache coordination cannot be measured without service |
-| 054 Production Readiness | Both variants and production web candidate validated; audit/runbook/blocker triage recorded | S,F,C / A,W,B,R | **Blocked:** signed/versioned release, physical-device tests, configured host/live CI verification |
+| 054 Production Readiness | Both variants and production web candidate validated; audit/runbook/blocker triage recorded | S,F,C / A,W,B,R | **Blocked:** signed/versioned release, physical-device tests, configured host/live service validation |
 | 055 Next Generation Platform | Local engine-v3/search-v6 interface and additive discovery route, shared recommendations, schema-v2/API-v1 compatibility | F / W,R | Foundation only; production prerequisites from 051/054 remain unsatisfied |
 
 ## Configuration needed to finish the full production chain
