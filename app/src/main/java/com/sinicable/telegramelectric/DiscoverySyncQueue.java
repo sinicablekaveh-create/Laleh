@@ -19,6 +19,7 @@ public final class DiscoverySyncQueue {
     private final SharedPreferences prefs;
     private final LinkedHashMap<Long, DiscoveryMetadata> pending = new LinkedHashMap<>();
     private boolean enabled;
+    private long consentGeneration;
     private final java.util.Map<Long, Retry> retries = new java.util.HashMap<>();
     private static final class Retry {
         final long revision, readyAt;
@@ -59,8 +60,14 @@ public final class DiscoverySyncQueue {
 
     public synchronized boolean isEnabled() { return enabled; }
 
+    synchronized long consentGeneration() { return consentGeneration; }
+    synchronized boolean hasConsent(long generation) {
+        return enabled && generation == consentGeneration;
+    }
+
     /** Disabling removes queued public records as well as revoking future enqueue. */
     public synchronized void setEnabled(boolean value) {
+        if (enabled != value) consentGeneration++;
         enabled = value;
         if (!enabled) { pending.clear(); retries.clear(); }
         persist();

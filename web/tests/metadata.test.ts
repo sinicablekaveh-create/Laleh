@@ -18,3 +18,11 @@ test("v1 safe integer rows migrate and unknown/private fields are rejected", () 
   assert.equal(parsePublicMetadata({ ...row, username: "https://invalid.test" }), null);
   assert.equal(parsePublicMetadata({ ...row, title: "public\u202e" }), null);
 });
+
+test("public facets reject controls and bidi overrides before normalization", () => {
+  for (const field of ["category", "location"]) {
+    for (const value of ["public\u0000", "public\u202e", "public\u2066"]) {
+      assert.equal(parsePublicMetadata({ ...row, [field]: value }), null);
+    }
+  }
+});
