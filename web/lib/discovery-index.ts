@@ -1,5 +1,5 @@
 import { parsePublicMetadata, type PublicGroup } from "./metadata.ts";
-import { normalizeQuery, searchQuery } from "./query.ts";
+import { normalizeQuery, searchQuery, analyzeQuery } from "./query.ts";
 import { searchOptions, type SearchOptions } from "./search-options.ts";
 
 export type SearchHit = Readonly<{ group: PublicGroup; score: number }>;
@@ -22,6 +22,8 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
   private readonly rows = new Map<string, PublicGroup>();
   private readonly usernames = new Map<string, string>();
   private readonly postings = new Map<string, Set<string>>();
+  private vocabulary: string[] | undefined;
+  private readonly titles = new Map<string, string>();
   private readonly rowWords = new Map<string, Set<string>>();
 
   constructor(rows: readonly unknown[] = []) {
@@ -47,11 +49,27 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
       ids.add(row.groupId);
       this.postings.set(word, ids);
     }
+    this.vocabulary = undefined;
+    this.titles.set(row.groupId, words(row.title).join(" "));
     this.rowWords.set(row.groupId, terms);
     if (previous && previous.username !== row.username) this.usernames.delete(previous.username);
     this.usernames.set(row.username, row.groupId);
     this.rows.set(row.groupId, row);
     return true;
+  }
+
+  private prefixIds(term: string): Set<string> {
+    const vocabulary = this.vocabulary ??= [...this.postings.keys()].sort();
+    let left = 0, right = vocabulary.length;
+    while (left < right) {
+      const middle = (left + right) >>> 1;
+      if (vocabulary[middle]! < term) left = middle + 1; else right = middle;
+    }
+    const ids = new Set<string>();
+    for (let i = left; i < vocabulary.length && vocabulary[i]!.startsWith(term); i++) {
+      for (const id of this.postings.get(vocabulary[i]!)!) ids.add(id);
+    }
+    return ids;
   }
 
   get(groupId: string): PublicGroup | undefined { return this.rows.get(groupId); }
@@ -74,12 +92,10 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
     const terms = [...new Set(words(query))].slice(0, 16);
     const boundedOffset = Number.isFinite(offset) ? Math.max(0, Math.floor(offset)) : 0;
     const boundedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(50, Math.floor(limit))) : 20;
-    let candidates: Set<string> | undefined;
+    const context = analyzeQuery(query);
+    let candidates: Set<string> | undefined = query && terms.length === 0 ? new Set() : undefined;
     for (const term of terms) {
-      const matching = new Set<string>();
-      for (const [word, ids] of this.postings) {
-        if (word.startsWith(term)) for (const id of ids) matching.add(id);
-      }
+      const matching = this.prefixIds(term);
       candidates = candidates === undefined ? matching
         : new Set([...candidates].filter(id => matching.has(id)));
       if (candidates.size === 0) break;
@@ -90,15 +106,19 @@ export class MemoryDiscoveryIndex implements DiscoveryIndex {
       const group = this.rows.get(id)!;
       if (filters.category && normalizeQuery(group.category) !== filters.category) continue;
       if (filters.location && normalizeQuery(group.location) !== filters.location) continue;
-      const title = words(group.title).join(" ");
+      const title = this.titles.get(id)!;
       let score = 0;
       if (normalizedPhrase) {
         if (title === normalizedPhrase) score += 1000;
         if (phrase(title, normalizedPhrase)) score += 500;
+        if (group.username === normalizedPhrase.replaceAll(" ", "_")) score += 250;
         if (group.username.includes(query)) score += 100;
-        if (group.category && phrase(query, group.category)) score += 100;
-        if (group.location && phrase(query, group.location)) score += 40;
-        for (const term of terms) if (phrase(title, term)) score += 20;
+        if (context.category && phrase(title, context.category)) score += 100;
+        if (context.location && phrase(title, context.location)) score += 40;
+        for (const term of terms) {
+          if (phrase(title, term)) score += 20;
+          if (group.username.includes(term)) score += 5;
+        }
       }
       hits.push(Object.freeze({ group, score }));
     }

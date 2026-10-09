@@ -1,0 +1,23 @@
+[
+  {
+    "raw": "  تَأسیسات‌كابل   تهران ",
+    "normalized": "تاسیسات کابل تهران",
+    "category": "کابل",
+    "location": "تهران",
+    "intent": "discovery"
+  },
+  {
+    "raw": "آموزش برق صنعتي تهران",
+    "normalized": "آموزش برق صنعتی تهران",
+    "category": "برق صنعتی",
+    "location": "تهران",
+    "intent": "learning"
+  },
+  {
+    "raw": "خرید سیم و کابل شیراز",
+    "normalized": "خرید سیم و کابل شیراز",
+    "category": "سیم و کابل",
+    "location": "شیراز",
+    "intent": "market"
+  }
+]

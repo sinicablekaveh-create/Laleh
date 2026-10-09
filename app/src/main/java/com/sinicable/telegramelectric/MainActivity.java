@@ -51,6 +51,7 @@ public final class MainActivity extends Activity {
     private TelegramClientManager telegram;
     private WordBank wordBank;
     private CentralCorePanel corePanel;
+    private DiscoveryPanel discoveryPanel;
     private CentralCore sharedCore;
     private AuthSessionStore authSessionStore;
     private BackgroundModeStore backgroundModeStore;
@@ -99,6 +100,12 @@ public final class MainActivity extends Activity {
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        DiscoveryPreferences discoveryChoices = new DiscoveryPreferences(this);
+        String discoveryTheme = discoveryChoices.theme();
+        boolean dark = "dark".equals(discoveryTheme) || ("system".equals(discoveryTheme)
+                && (getResources().getConfiguration().uiMode & android.content.res.Configuration.UI_MODE_NIGHT_MASK)
+                == android.content.res.Configuration.UI_MODE_NIGHT_YES);
+        setTheme(dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(savedInstanceState);
 
         authSessionStore = new AuthSessionStore(this);
@@ -311,6 +318,8 @@ public final class MainActivity extends Activity {
         );
         corePanel.setPhotoRequestListener(this::chooseMessagePhoto);
         root.addView(corePanel, matchWrap());
+        discoveryPanel = new DiscoveryPanel(this, telegram);
+        root.addView(discoveryPanel, matchWrap());
 
         backgroundRunCheck = new CheckBox(this);
         backgroundRunCheck.setText("اجرا در پس‌زمینه");
@@ -1171,6 +1180,7 @@ public final class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         fileExecutor.shutdown();
+        if (discoveryPanel != null) discoveryPanel.detach();
         if (corePanel != null) corePanel.detachUiCallbacks();
         if (backgroundModeStore != null
                 && backgroundModeStore.isEnabled()

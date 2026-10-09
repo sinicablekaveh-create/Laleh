@@ -42,3 +42,17 @@ footer { margin-top: 60px; padding: 28px 0 40px; border-top: 1px solid var(--lin
 @keyframes loading-pulse { from { opacity: .45; } to { opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .loading-lines span { animation: none; } }
 @media (max-width: 600px) { main { padding: 0 20px; } header { min-height: 90px; } header > a:last-child { font-size: 12px; } .hero { padding-top: 40px; } .search { flex-direction: column; } .empty { padding: 24px; } }
+.preferences { margin: 24px 0; padding: 20px; border: 1px solid var(--line); border-radius: 12px; }
+.preferences summary { cursor: pointer; font-weight: bold; }
+.preferences input[type="checkbox"] { width: auto; min-height: auto; }
+.preferences select { max-width: 320px; display: block; margin-bottom: 16px; }
+.secondary { display: block; margin-top: 16px; background: transparent; color: var(--ink); border: 1px solid var(--line); }
+:root[data-theme="dark"] { color-scheme: dark; --ink: #e0eee5; --muted: #b1c9ba; --paper: #15211c; --line: #3a5143; --accent: #ff987e; }
+:root[data-theme="dark"] input, :root[data-theme="dark"] select, :root[data-theme="dark"] .group, :root[data-theme="dark"] .empty { background: #203128; }
+:root[data-theme="dark"] button:not(.secondary) { background: #355b46; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) { color-scheme: dark; --ink: #e0eee5; --muted: #b1c9ba; --paper: #15211c; --line: #3a5143; --accent: #ff987e; }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) input, :root:not([data-theme="light"]):not([data-theme="dark"]) select,
+  :root:not([data-theme="light"]):not([data-theme="dark"]) .group, :root:not([data-theme="light"]):not([data-theme="dark"]) .empty { background: #203128; }
+  :root:not([data-theme="light"]):not([data-theme="dark"]) button:not(.secondary) { background: #355b46; }
+}
