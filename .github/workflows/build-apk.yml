@@ -6,14 +6,28 @@ on:
     branches: [ "main" ]
     paths:
       - "app/**"
+      - "telegram-core/**"
+      - "laleh-core/**"
+      - "docs/**"
+      - "scripts/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
       - "web/**"
   push:
-    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-execution-chain", "codex/task-023-search-experience-20261008", "codex/task-024-api-layer-20261008", "codex/task-025-web-optimization-20261008" ]
+    branches: [ "main" ]
     paths:
       - "app/**"
+      - "telegram-core/**"
+      - "laleh-core/**"
+      - "docs/**"
+      - "scripts/**"
+      - "gradle/**"
+      - "gradlew"
+      - "gradlew.bat"
       - "*.gradle.kts"
       - "gradle.properties"
       - ".github/workflows/build-apk.yml"
@@ -80,14 +94,12 @@ jobs:
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v5
-        with:
-          gradle-version: "8.9"
 
       - name: Run regression tests
-        run: gradle --no-daemon --stacktrace testDebugUnitTest
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
 
       - name: Run Android lint
-        run: gradle --no-daemon --stacktrace lintDebug
+        run: ./gradlew --no-daemon --stacktrace lintDebug
 
       - name: Upload test reports
         if: always()
@@ -101,7 +113,7 @@ jobs:
           retention-days: 14
 
       - name: Build debug APK
-        run: gradle --no-daemon --stacktrace assembleDebug
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v6
