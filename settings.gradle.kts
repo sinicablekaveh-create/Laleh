@@ -14,5 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TelegramElectric"
+rootProject.name = "LalehT"
 include(":app")
+include(":telegram-core")
+include(":laleh-core")

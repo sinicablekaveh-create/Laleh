@@ -114,6 +114,14 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 
 ## گزارش فعالیت ثبت‌شده
 
+### ۱۰ اکتبر ۲۰۲۶ — Phase 1.1: Laleh+T workspace bootstrap
+
+- نام Gradle workspace به `LalehT` تغییر کرد و ماژول‌های افزایشی `telegram-core` و `laleh-core` اضافه شدند؛ اپ موجود و `TelegramClientManager` جایگزین یا جابه‌جا نشدند.
+- `telegram-core` فقط contract مالک یگانهٔ session و مرز وابستگی TDLib را دارد و عمداً TDLib client نمی‌سازد. `laleh-core` مرز دادهٔ آفلاین Laleh را ثبت می‌کند؛ storage فعلی برنامه دست‌نخورده است.
+- Gradle Wrapper 8.9، script بررسی محیط، مستندات معماری/build/security/roadmap، و CI مبتنی بر Wrapper با artifact `laleht-debug` اضافه شدند. CI همچنان JDK 17 و Android SDK 35 را نصب و test/lint/assemble را اجرا می‌کند.
+- در محیط این اجرا Temurin JDK 17.0.20.1 و Android SDK Platform/Build Tools 35.0.0 نصب و script محیط با موفقیت اجرا شد. NDK لازم نیست، زیرا TDLib به شکل dependency از پیش‌ساخته مصرف می‌شود.
+- اجرای محلی `./gradlew testDebugUnitTest` به validation نرسید: Gradle در این محیط قادر به resolve کردن Android Gradle Plugin از Google/Maven/Plugin Portal نبود (اتصال Java به proxy رد شد). هیچ نتیجهٔ موفق test/lint/build برای این تغییر ثبت نشده است؛ CI pull request باید این سه gate را اجرا کند.
+
 ### ۷ اکتبر ۲۰۲۶ — آماده‌سازی محیط ابری
 
 - مخزن و مستندات build، workflowها، نسخه‌های ابزار و تست‌ها بررسی شد.
