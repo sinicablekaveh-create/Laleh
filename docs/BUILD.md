@@ -23,3 +23,5 @@ Run the required checks from the repository root:
 ```
 
 The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+
+CI publishes the APK under the existing `telegram-electric-debug` artifact name for compatibility with previous consumers.
