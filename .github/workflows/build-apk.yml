@@ -3,7 +3,7 @@ name: Build Android APK
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "codex/stability-1.11", "codex/member-targets-1.12", "codex/laleh-intelligent-search-v2" ]
+    branches: [ "main", "codex/laleh-intelligent-search-v2" ]
     paths:
       - "app/**"
       - "*.gradle.kts"
@@ -60,7 +60,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-electric-debug
+          name: hooshikadev-debug
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14

@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TelegramElectric"
+rootProject.name = "hooshikadev"
 include(":app")

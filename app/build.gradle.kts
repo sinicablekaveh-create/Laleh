@@ -1,24 +1,18 @@
-import java.util.Base64
-
 plugins {
     id("com.android.application")
 }
 
 android {
-    namespace = "com.sinicable.telegramelectric"
+    namespace = "com.hooshikadev.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.sinicable.telegramelectric"
+        applicationId = "com.hooshikadev.app"
         minSdk = 26
         targetSdk = 35
 
-        ndk {
-            abiFilters += listOf("arm64-v8a")
-        }
-
-        versionCode = 15
-        versionName = "1.13.0"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {
@@ -35,27 +29,20 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-}
 
-dependencies {
-    implementation("io.github.tdlib-android:core:0.1.1")
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.mockito:mockito-core:5.14.2")
-    testImplementation("org.json:json:20240303")
-}
-
-
-val generateAppLogo by tasks.registering {
-    doLast {
-        val encoded = (1..7).joinToString("") { index ->
-            file("src/main/assets/logo_%02d.b64".format(index)).readText().trim()
+    sourceSets {
+        getByName("main") {
+            java.setSrcDirs(listOf("src/hooshikadev/java"))
+            manifest.srcFile("src/hooshikadev/AndroidManifest.xml")
+            res.setSrcDirs(listOf("src/hooshikadev/res"))
+            assets.setSrcDirs(emptyList<String>())
         }
-        val output = file("src/main/res/drawable/app_logo.jpg")
-        output.parentFile.mkdirs()
-        output.writeBytes(Base64.getDecoder().decode(encoded))
+        getByName("test") {
+            java.setSrcDirs(listOf("src/hooshikadevTest/java"))
+        }
     }
 }
 
-tasks.named("preBuild") {
-    dependsOn(generateAppLogo)
+dependencies {
+    testImplementation("junit:junit:4.13.2")
 }
