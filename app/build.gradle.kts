@@ -38,6 +38,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":telegram-core"))
+    implementation(project(":laleh-core"))
     implementation("io.github.tdlib-android:core:0.1.1")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.mockito:mockito-core:5.14.2")

@@ -25,7 +25,7 @@
 - Gradle مورد استفاده در CI و محیط ابری: 8.9
 - CI نسخهٔ Android Build Tools 35.0.0 را صریحاً نصب می‌کند؛ نسخهٔ 34.0.0 نیز در محیط ابری آماده‌شده به‌عنوان نیاز جانبی Android Gradle Plugin نصب شد.
 - وابستگی اصلی تلگرام: `io.github.tdlib-android:core:0.1.1`
-- Gradle Wrapper در مخزن وجود ندارد؛ فرمان `gradle` باید از محیط نصب‌شده تأمین شود.
+- Gradle Wrapper 8.9 در مخزن وجود دارد و فرمان مرجع `./gradlew` است.
 
 ## قابلیت‌های موجود
 
@@ -113,6 +113,16 @@ gradle --no-daemon --max-workers=4 -x generateAppLogo \
 - اعداد ۹۳ تست و ۳۱ هشدار در `CHANGE_REPORT.fa.md` مربوط به اجرای قدیمی‌ترند؛ برای وضعیت فعلی باید نتیجهٔ اجرای جدید دوباره بررسی شود.
 
 ## گزارش فعالیت ثبت‌شده
+
+### ۱۰ اکتبر ۲۰۲۶ — Phase 1.1: Laleh+T workspace bootstrap
+
+- نام Gradle workspace به `LalehT` تغییر کرد و ماژول‌های افزایشی `telegram-core` و `laleh-core` اضافه شدند؛ اپ موجود و `TelegramClientManager` جایگزین یا جابه‌جا نشدند.
+- `telegram-core` فقط contract مالک یگانهٔ session و مرز وابستگی TDLib را دارد و عمداً TDLib client نمی‌سازد. `laleh-core` مرز دادهٔ آفلاین Laleh را ثبت می‌کند؛ storage فعلی برنامه دست‌نخورده است.
+- Gradle Wrapper 8.9، script بررسی محیط، مستندات معماری/build/security/roadmap، و CI مبتنی بر Wrapper با artifact سازگار `telegram-electric-debug` اضافه شدند. CI همچنان JDK 17 و Android SDK 35 را نصب و test/lint/assemble را اجرا می‌کند.
+- در محیط این اجرا Temurin JDK 17.0.20.1 و Android SDK Platform/Build Tools 35.0.0 نصب و script محیط با موفقیت اجرا شد. NDK لازم نیست، زیرا TDLib به شکل dependency از پیش‌ساخته مصرف می‌شود.
+- اجرای محلی `./gradlew testDebugUnitTest` به validation نرسید: Gradle در این محیط قادر به resolve کردن Android Gradle Plugin از Google/Maven/Plugin Portal نبود (اتصال Java به proxy رد شد). هیچ نتیجهٔ موفق test/lint/build برای این تغییر ثبت نشده است؛ CI pull request باید این سه gate را اجرا کند.
+- پس از بازبینی PR، script bootstrap انتخاب `JAVA_HOME` را با مسیر `java` هماهنگ می‌کند و وجود واقعی `aapt2` در Build Tools 35.0.0 را بررسی می‌کند؛ نام artifact به `telegram-electric-debug` برای سازگاری با مصرف‌کنندگان قبلی برگردانده و ادعای قدیمی نبودن Wrapper اصلاح شد.
+- commit اصلاحی `edb019c84dd86c2071b403b7d763378650595625` روی PR #39 push شد. اجرای CI شمارهٔ `38068324880` با jobهای Android و web موفق بود؛ `testDebugUnitTest`، `lintDebug`، `assembleDebug` و upload artifact `telegram-electric-debug` همگی PASS شدند. Artifact جدید شناسهٔ `11675392911` دارد.
 
 ### ۷ اکتبر ۲۰۲۶ — آماده‌سازی محیط ابری
 
